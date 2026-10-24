@@ -70,3 +70,34 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 
 **Pendiente**
 - Docker Desktop (usuario, antes de CP4). CP1 no iniciado.
+
+---
+
+## 2026-10-24 · Docker verificado
+
+- El usuario instaló Docker Desktop con `winget`. `docker run --rm hello-world` → "Hello from Docker!". `wsl -l -v` muestra la distribución `docker-desktop` en WSL versión 2, así que el motor usa WSL 2 (winget instala en modo silencioso con esa opción por defecto).
+- La terminal de la sesión de Claude Code no ve `docker` en el `PATH` hasta reiniciarla. Se resolverá antes de CP4.
+
+---
+
+## 2026-10-24 · CP1 — Eventos
+
+**Cambios**
+- `ebica/core/events.py`: `Event` (Pydantic: `id`, `ts` en UTC, `entity_id`, `type`, `payload`, `cause_id`), `JsonlEventLog` (append/lectura por entidad y día) y `EventBus` (`subscribe`, `unsubscribe`, `publish`, `emit`).
+- `pyproject.toml`: dependencia `pydantic>=2.6` (instalada 2.14.1 en `.venv`).
+- `tests/test_events.py`: 15 casos.
+
+**Decisiones y motivos**
+- Un `asyncio.Queue` por suscriptor: emitir nunca espera a un consumidor lento. Las colas no tienen límite; se revisará con la consola real (CP5).
+- Se persiste antes de repartir: el JSONL es la fuente de verdad para reproducir sesiones.
+- El día del archivo se calcula en UTC, para que no dependa de la zona horaria.
+- `entity_id` restringido a `[a-z0-9_-]` porque se usa como nombre de carpeta (evita rutas como `../`). El tipo de evento sigue el formato `familia.nombre` de §8.2.
+
+**Relación con EBICA**
+- Implementa D10: base de la observabilidad total, la reproducción de sesiones y las métricas de §12. `cause_id` permite reconstruir la cadena causal de un turno.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -v` → `16 passed` (15 de CP1 + smoke). Cubren entrega al suscriptor, desuscripción, una línea JSON por evento, reconstrucción idéntica, encadenamiento con `cause_id`, separación por día, día sin eventos, y rechazo de ids y tipos inválidos.
+
+**Pendiente**
+- CP2 (entidades) no iniciado.
