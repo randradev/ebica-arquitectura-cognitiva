@@ -200,3 +200,63 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 **Pendiente**
 - Decisión del usuario sobre el modelo (cierra la decisión abierta §14 "Modelo LLM concreto") y sobre mantener `llm.error`.
 - CP4 (Neo4j) no iniciado.
+
+---
+
+## 2026-10-24 · Decisión sobre el modelo LLM
+
+- El usuario adopta `llama3.1` y descarta por ahora cambiar a una API pagada: "hagamos todo lo posible para que funcione bien con llama3.1". Una API solo se considerará si el rendimiento resulta muy deficiente. La forma de medirlo se definirá con un benchmark de appraisal (unos 30 casos etiquetados) al inicio de Fase 1. Registrado en `PLAN.md` (D0-3).
+- Motivos discutidos:
+  - el límite de 4096 tokens es un valor por defecto de Ollama, no del modelo; se puede subir a 8k;
+  - el prompt de appraisal de CP3 era provisional;
+  - cambiar de proveedor solo requiere cambiar la URL, el modelo y la clave;
+  - una API rompería la ejecución local de §1.4 y §13.3;
+  - el costo del monólogo continuo de Fase 2 sería alto.
+- Sigue pendiente decidir si se mantiene `llm.error`.
+
+---
+
+## 2026-10-24 · CP4 — Neo4j
+
+**Cambios**
+- `docker-compose.yml`: servicio `neo4j` con la imagen fija `neo4j:5.26.32-community` (LTS de la serie 5.x), con estas opciones:
+  - puertos 7474 y 7687 abiertos solo en `127.0.0.1`;
+  - heap de 1 GB, page cache de 512 MB y tope del contenedor de 2 GB;
+  - volumen con nombre `neo4j_data`;
+  - healthcheck;
+  - telemetría desactivada.
+- `ebica/memory/graph.py`: `schema_statements()` y `GraphStore` (asíncrono), con los métodos `from_env`, `verify`, `execute`, `apply_schema`, `constraint_names` e `index_names`.
+  - Restricciones de unicidad `(entity_id, id)` para `Person`, `Episode`, `Trace`, `Fact` y `Commitment`, y `(entity_id, name)` para `Topic`.
+  - Índice por `entity_id` en las 8 etiquetas de §7.2.
+  - No se crearon índices vectoriales (D0-5).
+- `.env` creado a partir de `.env.example`, con una contraseña aleatoria para Neo4j. No se versiona: verificado con `git check-ignore`.
+- `pyproject.toml`: dependencia `neo4j>=6.0,<7` (instalada 6.4.1 en `.venv`).
+- `README.md`: cómo levantar y detener Neo4j, y cómo pasar las credenciales a las pruebas.
+- `tests/test_graph.py`: 6 casos (3 unitarios y 3 de integración).
+
+**Decisiones y motivos**
+- Puertos abiertos solo en `127.0.0.1` y `NEO4J_dbms_usage__report_enabled=false`. La imagen envía estadísticas de uso por defecto (lo mostraba el log del primer arranque), y la memoria contiene conversaciones privadas (§13.3).
+- Volumen gestionado por Docker en lugar de una carpeta del proyecto: es más rápido sobre WSL 2 y no mezcla los datos con el código. `docker compose down -v` lo borra.
+- La unicidad es por pareja `(entity_id, id)` y no solo por `id`, para que un clon pueda conservar los mismos ids que el original sin chocar (§4.2).
+- `NEO4J_PASSWORD` no tiene valor por defecto en el código: si falta, el error dice qué variable definir.
+- Fase 0 no lee `.env` desde Python: las pruebas reciben las variables desde la terminal. Añadir `python-dotenv` (o un lector propio) se decidirá en CP5, donde el servidor lo necesitará.
+- El esquema no emite eventos, porque no pertenece a ninguna entidad (`entity_id`). Los eventos de memoria (`memory.written`, etc.) llegan en Fase 1.
+
+**Relación con EBICA**
+- Implementa la base de D7 y §7: una sola base de datos con las entidades aisladas por `entity_id`, lista para que Fase 1 escriba `Episode` y `Trace` y haga la recuperación híbrida.
+
+**Pruebas**
+- `docker compose config --quiet` → OK. `docker compose up -d` → contenedor `healthy`; uso de memoria de 1.3 GiB con tope de 2 GiB.
+- Con las credenciales en el entorno: `pytest -v tests/test_graph.py` → `6 passed`, y la suite completa → `48 passed`. Las pruebas cubren:
+  - esquema aplicado dos veces sin error;
+  - `SHOW CONSTRAINTS` y `SHOW INDEXES` listan lo esperado;
+  - el mismo id se acepta en dos entidades distintas y se rechaza si se repite en la misma.
+- Sin `NEO4J_PASSWORD` → `3 passed, 3 skipped`, con aviso.
+- Con el contenedor detenido → `3 passed, 3 skipped`, con aviso. Tarda unos 12 s porque el driver reintenta la conexión.
+- Tras `docker compose stop` y `start`, el esquema persiste: 6 restricciones y 16 índices (incluidos 2 que Neo4j crea por defecto).
+- El log del contenedor recreado ya no menciona el envío de datos de uso.
+
+**Pendiente**
+- Lectura de `.env` desde Python (CP5). Restricción de unicidad para `Self` y para `Revision` (por episodio y versión) cuando se modelen en Fase 1.
+- Neo4j queda encendido con `restart: unless-stopped`: arranca solo con Docker Desktop hasta que se detenga con `docker compose stop`.
+- CP5 no iniciado.

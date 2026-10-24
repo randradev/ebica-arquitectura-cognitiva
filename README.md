@@ -14,3 +14,16 @@ pytest
 ```
 
 Copia `.env.example` como `.env` para la configuración local.
+
+## Neo4j (memoria)
+
+Requiere Docker Desktop y un `.env` con `NEO4J_PASSWORD` (la contraseña se fija
+la primera vez que se crea el volumen de datos).
+
+```powershell
+docker compose up -d      # levanta Neo4j (Browser en http://localhost:7474)
+docker compose stop       # lo detiene; los datos se conservan en el volumen
+```
+
+Las pruebas de integración leen las credenciales del entorno; en Git Bash:
+`set -a; . ./.env; set +a; .venv/Scripts/python.exe -m pytest`.
