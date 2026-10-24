@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ebica"
+version = "0.0.1"
+description = "EBICA: arquitectura cognitiva para entidades virtuales autónomas."
+readme = "README.md"
+requires-python = ">=3.11"
+# Las dependencias de ejecución se añaden en el checkpoint que las necesita
+# (pydantic en CP1, httpx en CP3, neo4j en CP4, fastapi/uvicorn en CP5).
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+include = ["ebica*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Los tests asíncronos se ejecutan sin decorar cada uno (el motor es asyncio, D3).
+asyncio_mode = "auto"
+markers = [
+    "integration: requiere servicios externos (Ollama, Neo4j); se omite si no están disponibles",
+]

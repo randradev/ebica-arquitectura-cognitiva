@@ -1,0 +1,23 @@
+# Entorno y artefactos de Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Configuración local con credenciales
+.env
+
+# Datos de las entidades: contienen conversaciones personales (doc base §13.3).
+# Se versiona solo config.yaml.
+entities/*/state.json
+entities/*/events/
+
+# Consola (frontend)
+node_modules/
+console/dist/
+
+# Editores y sistema
+.vscode/
+.idea/
+Thumbs.db
