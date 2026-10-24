@@ -15,13 +15,16 @@ Uso (desde la raíz del repositorio, con Ollama encendido):
 import argparse
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from ebica.core.events import EventBus
-from ebica.llm.client import DEFAULT_BASE_URL, LLMClient
+from ebica.llm.client import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMClient
 
 ENTITY_ID = "evaluacion"
 
@@ -211,9 +214,11 @@ async def run(model: str, base_url: str) -> str:
 
 def main() -> None:
     """Lee los argumentos, ejecuta la evaluación y guarda el informe."""
+    # Valores por defecto desde `.env` (si existe); los argumentos los sobrescriben.
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    parser.add_argument("--model", default="llama3.1")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--model", default=os.environ.get("EBICA_LLM_MODEL", DEFAULT_MODEL))
+    parser.add_argument("--base-url", default=os.environ.get("EBICA_LLM_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 

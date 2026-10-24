@@ -25,5 +25,4 @@ docker compose up -d      # levanta Neo4j (Browser en http://localhost:7474)
 docker compose stop       # lo detiene; los datos se conservan en el volumen
 ```
 
-Las pruebas de integración leen las credenciales del entorno; en Git Bash:
-`set -a; . ./.env; set +a; .venv/Scripts/python.exe -m pytest`.
+Las pruebas y los scripts cargan `.env` automáticamente (`python-dotenv`).

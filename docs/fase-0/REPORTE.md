@@ -260,3 +260,12 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 - Lectura de `.env` desde Python (CP5). Restricción de unicidad para `Self` y para `Revision` (por episodio y versión) cuando se modelen en Fase 1.
 - Neo4j queda encendido con `restart: unless-stopped`: arranca solo con Docker Desktop hasta que se detenga con `docker compose stop`.
 - CP5 no iniciado.
+
+---
+
+## 2026-10-24 · Pendientes de CP3/CP4 resueltos
+
+- `llm.error` **confirmado** por el usuario como evento del motor (complementa la familia LLM de §8.2).
+- `python-dotenv>=1.0` añadido (instalada 1.2.4), con aprobación del usuario. `.env` se carga solo en los puntos de entrada: `tests/conftest.py` (nuevo), `scripts/evaluate_llm.py` y, en CP5, el servidor. La biblioteca (`GraphStore.from_env`, `LLMClient.from_env`) sigue leyendo solo variables de entorno, sin efectos ocultos. `load_dotenv` no sobrescribe variables ya definidas en la terminal.
+- `README.md`: se reemplazó la instrucción manual `set -a; . ./.env` por la carga automática.
+- Prueba: `.venv/Scripts/python.exe -m pytest -q -rs`, sin variables en la terminal → `48 passed`, sin pruebas omitidas: las de Neo4j leyeron la contraseña desde `.env`. `scripts/evaluate_llm.py --help` → OK.
