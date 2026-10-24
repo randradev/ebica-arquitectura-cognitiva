@@ -101,3 +101,49 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 
 **Pendiente**
 - CP2 (entidades) no iniciado.
+
+---
+
+## 2026-10-24 · Correcciones de documentación y Docker en la terminal
+
+- La terminal de Claude Code, en una sesión nueva, ya ve Docker: `docker --version` → 29.9.2; `docker compose version` → v5.6.1. Resuelve el pendiente de "Docker verificado". No se levantó Neo4j (CP4).
+- La rama del repositorio es `main` (con remoto `origin` en GitHub), no `master` como se registró en "Revisión de decisiones". Corregido en `PLAN.md` (D0-1); la entrada anterior se conserva tal cual.
+- `CLAUDE.md` §1 ahora indica que el documento base está en `docs/EBICA_documento_base.md` (cierra la discrepancia de D0-8, con aprobación del usuario).
+
+---
+
+## 2026-10-24 · CP2 — Entidades
+
+**Cambios**
+- `ebica/core/state.py`: `EntityConfig` (`id`, `name`, `description`, `persona`; `extra="forbid"`) y `EntityState` (`entity_id`, `mode`, `created_at`, `last_loaded_at`). Los rasgos y la biografía no se implementaron (Fase 1).
+- `ebica/entities/manager.py`: `EntityManager.create()` / `.load()`, `Entity` (config + estado) y `EntityConfigError`.
+- `entities/ejemplo/config.yaml`: entidad de ejemplo (se versiona; su estado y eventos no).
+- `pyproject.toml`: dependencia `pyyaml>=6.0` (instalada 6.0.3 en `.venv`).
+- `.gitignore`: se añadió `entities/*/*.tmp` (archivo temporal de la escritura atómica).
+- `ebica/core/__init__.py`: docstring actualizado.
+- `tests/test_entities.py`: 15 casos.
+
+**Decisiones y motivos**
+- `create()` falla si la entidad ya existe, para no sobrescribir la historia de otra entidad.
+- `load()` crea un estado inicial si falta `state.json`. Es necesario porque en el repositorio solo se versiona `config.yaml`, así que una copia recién clonada no tiene estado.
+- Los errores de archivo, de YAML y de Pydantic se convierten en un único `EntityConfigError` que indica la ruta y los campos afectados.
+- Se rechazan los campos desconocidos, para que un error de tipeo no pase desapercibido. Cuando lleguen los rasgos (Fase 1), habrá que añadir sus campos al esquema.
+- El `id` del archivo debe coincidir con el nombre de la carpeta, porque los eventos y la memoria se indexan por `entity_id`.
+- `state.json` se escribe en un archivo temporal que luego reemplaza al original. Si el proceso se corta a mitad de la escritura, el estado anterior queda intacto.
+
+**Relación con EBICA**
+- Implementa D1 y §5.1: el motor está separado de los datos de cada entidad, que viven en su propia carpeta. Es la base de la multi-instancia, los clones y la comparación de entidades con rasgos distintos en Fase 1.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -v` → `31 passed` (15 de CP2 + 15 de CP1 + smoke). Cubren:
+  - creación (archivos y `entity.created`) y rechazo de una entidad duplicada;
+  - carga (estado reconstruido, `entity.loaded`, hora de carga persistida) y carga sin `state.json`;
+  - eventos guardados en el JSONL;
+  - errores legibles por campo faltante, campo desconocido, YAML roto, id distinto de la carpeta y entidad inexistente;
+  - ids y modos inválidos;
+  - la entidad de ejemplo carga sin errores.
+- Prueba manual de un mensaje de error: `config.yaml no es válido: 'name': Field required; 'nmae': Extra inputs are not permitted`.
+- La consola de Windows mostró "v�lido" por su codificación (cp1252). El texto en Python es correcto.
+
+**Pendiente**
+- CP3 (cliente LLM) no iniciado.

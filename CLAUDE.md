@@ -7,8 +7,7 @@ arquitectura para construir entidades virtuales con continuidad
 biográfica, estado afectivo dinámico, personalidad, memoria y procesos
 autónomos.
 
-El documento `EBICA_documento_base.md`, ubicado en la raíz del
-repositorio, es la fuente principal de verdad sobre los objetivos, la
+El documento `docs/EBICA_documento_base.md` es la fuente principal de verdad sobre los objetivos, la
 arquitectura, las restricciones, las fases y las decisiones de diseño
 del proyecto.
 

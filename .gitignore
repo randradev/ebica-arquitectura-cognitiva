@@ -12,6 +12,7 @@ __pycache__/
 # Se versiona solo config.yaml.
 entities/*/state.json
 entities/*/events/
+entities/*/*.tmp
 
 # Consola (frontend)
 node_modules/

@@ -1,0 +1,6 @@
+# Entidad de ejemplo para Fase 0. Solo define identidad básica;
+# rasgos, biografía semilla e ideal del yo se añaden en Fase 1.
+id: ejemplo
+name: Ejemplo
+description: Entidad mínima para probar la infraestructura de Fase 0.
+persona: Soy una entidad de prueba. Hablo en español, con frases breves.

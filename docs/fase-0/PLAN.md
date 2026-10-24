@@ -66,14 +66,14 @@ mensaje y ver en la consola el evento de entrada, el prompt enviado y la respues
 
 | # | Estado | Resultado |
 |---|---|---|
-| D0-1 | **Confirmada** | Repositorio propio creado por el usuario en la carpeta del proyecto (rama `master`). |
+| D0-1 | **Confirmada** | Repositorio propio creado por el usuario en la carpeta del proyecto (rama `main`, remoto `origin` en GitHub). |
 | D0-2 | **Confirmada** | Ollama como servidor LLM en Fase 0, vía su API compatible con OpenAI. |
 | D0-3 | **Confirmada** | Se descarta `mistral`. Se evalúa primero `llama3.1` (8B, soporte oficial de español, contexto 128k). Solo si no rinde bien se evalúa `llama3`. Sin descargas. |
 | D0-4 | **Confirmada: Docker** | Docker Desktop sobre WSL2 (ya instalado). El usuario lo instala siguiendo una guía paso a paso, antes de CP4. |
 | D0-5 | **Confirmada** | Índices vectoriales y modelo de embeddings se posponen al inicio de Fase 1. |
 | D0-6 | **Confirmada** | Vite + React + TypeScript en `console/` (frontend separado del paquete Python). |
 | D0-7 | **Confirmada** | `venv` + `pip` con `pyproject.toml`. |
-| D0-8 | **Confirmada** | El usuario movió el documento a `docs/EBICA_documento_base.md` (coincide con §10). `CLAUDE.md` aún dice "raíz": pendiente de que el usuario decida si actualizarlo. |
+| D0-8 | **Confirmada** | El usuario movió el documento a `docs/EBICA_documento_base.md` (coincide con §10). `CLAUDE.md` actualizado para apuntar a `docs/`. |
 
 ### 5.2 Opciones originales
 
