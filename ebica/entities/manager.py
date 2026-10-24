@@ -10,6 +10,7 @@ Cada entidad vive en su propia carpeta, separada del código del motor:
 Suspender, clonar y eliminar llegan en fases posteriores.
 """
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from ebica.core.events import EventBus
+from ebica.core.events import ENTITY_ID_PATTERN, EventBus
 from ebica.core.state import EntityConfig, EntityState
 
 CONFIG_FILENAME = "config.yaml"
@@ -47,6 +48,14 @@ class EntityManager:
     def entity_dir(self, entity_id: str) -> Path:
         """Devuelve la carpeta de una entidad (exista o no)."""
         return self.base_dir / entity_id
+
+    def list_ids(self) -> list[str]:
+        """Devuelve, ordenados, los ids de las carpetas que contienen un `config.yaml`."""
+        if not self.base_dir.exists():
+            return []
+        return sorted(
+            path.name for path in self.base_dir.iterdir() if (path / CONFIG_FILENAME).is_file()
+        )
 
     def create(self, config: EntityConfig) -> Entity:
         """
@@ -105,6 +114,10 @@ class EntityManager:
         Traduce los errores de archivo, de YAML y de Pydantic a un único
         `EntityConfigError` con un mensaje legible que indica la ruta y los campos.
         """
+        # El id puede venir de una URL de la API: se valida antes de usarlo como
+        # ruta, para que algo como "../otra_carpeta" no lea fuera de `base_dir`.
+        if not re.fullmatch(ENTITY_ID_PATTERN, entity_id):
+            raise EntityConfigError(f"Id de entidad inválido: '{entity_id}'")
         path = self.entity_dir(entity_id) / CONFIG_FILENAME
         if not path.exists():
             raise EntityConfigError(f"No existe {path}")

@@ -8,14 +8,17 @@ version = "0.0.1"
 description = "EBICA: arquitectura cognitiva para entidades virtuales autónomas."
 readme = "README.md"
 requires-python = ">=3.11"
-# Las dependencias de ejecución se añaden en el checkpoint que las necesita
-# (httpx en CP3, neo4j en CP4, fastapi/uvicorn en CP5).
+# Las dependencias de ejecución se añadieron en el checkpoint que las necesitaba
+# (pydantic CP1, pyyaml CP2, httpx CP3, neo4j y python-dotenv CP4, fastapi/uvicorn CP5).
 dependencies = [
     "pydantic>=2.6",
     "pyyaml>=6.0",
     "httpx>=0.27",
     "neo4j>=6.0,<7",
     "python-dotenv>=1.0",
+    "fastapi>=0.115",
+    # [standard] incluye `websockets` (necesario para WebSocket) y `watchfiles`.
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]

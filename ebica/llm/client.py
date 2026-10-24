@@ -93,12 +93,15 @@ class LLMClient:
         self._http = httpx.AsyncClient(base_url=base_url, timeout=HTTP_TIMEOUT, transport=transport)
 
     @classmethod
-    def from_env(cls, bus: EventBus) -> "LLMClient":
+    def from_env(
+        cls, bus: EventBus, transport: httpx.AsyncBaseTransport | None = None
+    ) -> "LLMClient":
         """Crea el cliente con `EBICA_LLM_BASE_URL` y `EBICA_LLM_MODEL` (o los valores por defecto)."""
         return cls(
             bus,
             base_url=os.environ.get("EBICA_LLM_BASE_URL", DEFAULT_BASE_URL),
             model=os.environ.get("EBICA_LLM_MODEL", DEFAULT_MODEL),
+            transport=transport,
         )
 
     async def __aenter__(self) -> "LLMClient":

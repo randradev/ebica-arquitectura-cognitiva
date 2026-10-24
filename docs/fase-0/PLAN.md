@@ -1,6 +1,6 @@
 # Fase 0 — Infraestructura · PLAN
 
-> Estado: **propuesta, pendiente de aprobación.** Nada de este plan se ha ejecutado.
+> Estado: **aprobado y ejecutado (CP0–CP5 completados el 2026-10-24).** Cierre formal pendiente del usuario. El detalle de lo ocurrido está en `REPORTE.md`; la sección 2 describe el estado *inicial*.
 > Fuente: `docs/EBICA_documento_base.md` §4.2, §5.1, §5.13, §7, §8, §9, §10, §11 (Fase 0), §14.
 
 ---
@@ -144,8 +144,10 @@ entrada en `REPORTE.md` y una pausa.
 
 ## 8. Criterios de aceptación de la fase
 
-- [ ] CP0–CP5 completados y registrados en `REPORTE.md`.
-- [ ] `pytest` pasa completo (tests de Neo4j/LLM real marcados como integración).
-- [ ] Demostración del criterio §11 realizada y documentada.
-- [ ] Decisiones D0-1 a D0-8 registradas con lo que se eligió y por qué.
-- [ ] Ningún dato de entidad (estado, eventos) queda versionado.
+- [x] CP0–CP5 completados y registrados en `REPORTE.md`.
+- [x] `pytest` pasa completo (tests de Neo4j/LLM real marcados como integración).
+- [x] Demostración del criterio §11 realizada y documentada.
+- [x] Decisiones D0-1 a D0-8 registradas con lo que se eligió y por qué.
+- [x] Ningún dato de entidad (estado, eventos) queda versionado.
+
+> Marcados el 2026-10-24 tras CP5; la evidencia está en `REPORTE.md`. El cierre formal de la fase queda a decisión del usuario.

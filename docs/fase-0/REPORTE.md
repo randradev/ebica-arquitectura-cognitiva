@@ -269,3 +269,95 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 - `python-dotenv>=1.0` añadido (instalada 1.2.4), con aprobación del usuario. `.env` se carga solo en los puntos de entrada: `tests/conftest.py` (nuevo), `scripts/evaluate_llm.py` y, en CP5, el servidor. La biblioteca (`GraphStore.from_env`, `LLMClient.from_env`) sigue leyendo solo variables de entorno, sin efectos ocultos. `load_dotenv` no sobrescribe variables ya definidas en la terminal.
 - `README.md`: se reemplazó la instrucción manual `set -a; . ./.env` por la carga automática.
 - Prueba: `.venv/Scripts/python.exe -m pytest -q -rs`, sin variables en la terminal → `48 passed`, sin pruebas omitidas: las de Neo4j leyeron la contraseña desde `.env`. `scripts/evaluate_llm.py --help` → OK.
+
+---
+
+## 2026-10-24 · CP5 — API, consola y flujo extremo a extremo
+
+**Cambios (backend)**
+- `ebica/llm/prompt_assembler.py`: prompt trivial (`Eres {name}. {description} {persona}` + mensaje), sin historial.
+- `ebica/core/turn.py`: `run_user_turn()`. Recorre `perception.input` → `llm.request` → streaming → `llm.response`, encadenados por `cause_id`.
+- `ebica/api/server.py`: `create_app()` (fábrica de la aplicación) con estos endpoints:
+  - `GET /api/entities` y `POST /api/entities`;
+  - `POST /api/entities/{id}/load`;
+  - `WS /ws/chat` (mensajes `token`, `done` y `error`);
+  - `WS /ws/events`.
+- `ebica/api/__main__.py`: `python -m ebica.api`. Carga `.env` y escucha solo en `127.0.0.1:8000`.
+- `ebica/entities/manager.py`: `list_ids()` y validación del `entity_id` en `load()`.
+- `ebica/llm/client.py`: `from_env()` acepta un `transport` (para las pruebas).
+- `pyproject.toml`: `fastapi>=0.115` (0.162.0) y `uvicorn[standard]>=0.30` (0.54.0, incluye `websockets` 17.3).
+- `.env.example`: `EBICA_API_PORT`.
+
+**Cambios (consola, `console/`)**
+- Esqueleto con `npm create vite@latest -- --template react-ts`: React 19, TypeScript 6, Vite 8 y oxlint. Se borraron los archivos de demostración de la plantilla.
+- `vite.config.ts`: proxy de `/api` y `/ws` al backend (un solo origen, sin CORS).
+- `src/EntityPanel.tsx` (listar, crear y cargar), `src/Chat.tsx` (chat en streaming), `src/EventLog.tsx` (eventos en vivo, filtro por tipo y detalle expandible), `src/useEvents.ts` (suscripción con reconexión y tope de 500 eventos) y `src/types.ts`.
+- El detalle de un `llm.request` muestra cada mensaje del prompt con su rol y su texto completo, y el JSON íntegro del evento.
+
+**Tests**
+- `tests/fake_llm.py`: servidor LLM simulado, ahora compartido; se extrajo de `test_llm_client.py`.
+- `tests/test_turn_and_api.py`: 11 casos.
+- `README.md`: cómo arrancar el servidor y la consola.
+
+**Decisiones y motivos**
+- El turno vive en `core/turn.py`, no en `api/`. Así la API solo se ocupa del transporte, y la lógica del turno pasará al orquestador en Fase 1 sin depender de FastAPI.
+- El streaming se envuelve con `aclosing` en el turno y en el servidor. Si la consola se desconecta a mitad de una respuesta, la conexión con Ollama se cierra en el acto y se emite `llm.cancelled`. Sin `aclosing`, se cerraría cuando pasara el recolector de basura, en un momento indeterminado.
+- Validar el `entity_id` en `load()`: ahora el id llega desde una URL, y sin la validación un id como `../x` podría leer fuera de `entities/`.
+- Solo WebSocket para el chat (no un `POST`): la respuesta va en streaming. Los turnos se procesan de uno en uno por conexión, porque Fase 0 no tiene cola de GPU.
+- Una sola entidad activa en el servidor (§4.2). Cargar otra la reemplaza; `entity.suspended` llega en fases posteriores.
+- Sin historial de conversación: el prompt trivial del plan no lo incluye. La entidad no recuerda el turno anterior hasta Fase 1 (WorkingMemory).
+
+**Relación con EBICA**
+- Cumple el criterio de terminado de Fase 0 (§11) y la base de la consola de §8.3: lo que el motor hace es visible en vivo, incluido el prompt exacto, y queda registrado en el JSONL para reproducirlo.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q` → `59 passed` (4 de integración, con Ollama y Neo4j reales). Con `-m "not integration"` → `55 passed`.
+- Las 11 pruebas nuevas cubren:
+  - el prompt trivial;
+  - la cadena de eventos del turno;
+  - el cierre anticipado del turno, que emite `llm.cancelled`;
+  - crear, listar y cargar por HTTP;
+  - los errores 404, 409 y 422;
+  - el chat sin entidad activa;
+  - el flujo completo por WebSocket (respuesta en streaming, eventos en vivo e iguales en el JSONL);
+  - el error del LLM en el chat;
+  - un id inseguro en el manager;
+  - `list_ids`.
+- Consola: `npm run build` (incluye la verificación de tipos `tsc`) → OK. `npx oxlint` → 0 avisos. Corregí dos avisos de hooks en `EntityPanel`.
+- Extremo a extremo con un script Python, pasando por el proxy de Vite y con Ollama real (`llama3.1`): carga `ejemplo`, respuesta en 24 fragmentos, y `perception.input` → `llm.request` (prompt completo) → `llm.response` en vivo con su `cause_id`. Los mismos eventos quedaron en `entities/ejemplo/events/2026-10-24.jsonl`.
+- **Demostración en el navegador** (Chrome, http://127.0.0.1:5173):
+  1. se crea `demo_cp5` desde el formulario y se carga (`entity.created` y `entity.loaded` en vivo);
+  2. se le escribe "Hola Aurora, ¿qué estás restaurando esta semana?";
+  3. la respuesta llega en streaming;
+  4. en el registro aparecen `perception.input`, `llm.request` y `llm.response`;
+  5. al expandir el `llm.request` se ven los mensajes SYSTEM y USER exactos y el `cause_id` apuntando al `perception.input`.
+  
+  El JSONL de `demo_cp5` contiene los 5 eventos con la misma cadena. La consola del navegador no registró errores al recargar.
+- `git status`: `state.json` y `events/` de las entidades no aparecen (ignorados).
+
+**Observaciones**
+- `llama3.1` escribió acotaciones de rol ("*respiro profundamente*", "*suspiro*"). Se controlará desde el prompt en Fase 1.
+- El chat muestra el `id` de la entidad (`demo_cp5`) en lugar de su nombre. Es menor; se ajustará cuando la consola crezca.
+- Starlette avisa que su `TestClient` prefiere `httpx2`. Solo afecta a las pruebas; no se añadió la dependencia.
+- La consola no recupera los eventos anteriores al conectarse: solo muestra los que llegan en vivo. El historial completo está en el JSONL.
+
+**Pendiente**
+- Decidir qué hacer con `entities/demo_cp5/`, creada en la demostración (solo su `config.yaml` sería versionable).
+- Cierre formal de Fase 0 y paso a la planificación de Fase 1 (a decisión del usuario).
+
+---
+
+## 2026-10-24 · Segunda entidad de prueba: Inés
+
+- `entities/ines/config.yaml`: Inés Arancibia, afinadora de pianos de Valparaíso. Se pidió una entidad "original, con campos interesantes".
+  - `description` lleva hechos biográficos: futura biografía semilla de Fase 1.
+  - `persona` lleva su voz, valores y opiniones firmes (un adelanto del ideal del yo, Fase 3), un tema que evita (su padre) y la regla "no describo gestos entre asteriscos".
+- Sondeo con `llama3.1` (3 mensajes por `/ws/chat`):
+  - respeta las frases cortas y ya no usa asteriscos;
+  - ante "pon música de fondo" no expresa con firmeza su irritación;
+  - ante "¿tu papá también afinaba pianos?" responde, aunque su persona dice que no habla de él con desconocidos.
+- Lectura: las restricciones escritas solo en el prompt se cumplen a medias. Esto respalda el planteamiento del documento base (§1.2): la personalidad debe vivir en la dinámica (por ejemplo, el `DefenseArbiter` de Fase 3 decidiendo qué entra al contexto), no solo en el texto.
+- El usuario probó a Inés desde la consola: "está funcionando súper".
+- `entities/demo_cp5/` borrada a pedido del usuario: solo contenía la configuración genérica de la demostración, su `state.json` y un JSONL con 5 eventos de prueba.
+- Al detener los servidores en segundo plano, el proceso `node` de Vite (lanzado por `npm run dev`) quedó vivo ocupando el puerto 5173. Se identificó por su línea de comandos y se detuvo. Si al detener `npm run dev` el puerto sigue ocupado, la causa es esa.
+- `PLAN.md`: el encabezado de estado decía "propuesta, pendiente"; se actualizó a "ejecutado".

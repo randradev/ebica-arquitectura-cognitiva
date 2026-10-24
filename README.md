@@ -26,3 +26,15 @@ docker compose stop       # lo detiene; los datos se conservan en el volumen
 ```
 
 Las pruebas y los scripts cargan `.env` automáticamente (`python-dotenv`).
+
+## Servidor y consola
+
+Con Ollama y Neo4j encendidos, en dos terminales:
+
+```powershell
+.venv\Scripts\python.exe -m ebica.api     # backend en http://127.0.0.1:8000
+cd console; npm install; npm run dev      # consola en http://127.0.0.1:5173
+```
+
+La consola permite crear o cargar una entidad, chatear con ella y ver en vivo
+todos los eventos del motor (incluido el prompt exacto de cada `llm.request`).
