@@ -1,0 +1,12 @@
+# Variante experimental de Calisto para el criterio de §11 (PLAN D1-5, D1-12).
+#
+# Hereda todo de `calisto` y solo cambia N: misma biografía, misma voz y mismo
+# prompt (D1-13), así que cualquier diferencia en la vida media del ánimo
+# proviene de la dinámica. Razón esperada de h_neg: 42,5 / 27,5 ≈ 1,55.
+#
+# El nombre también se hereda a propósito: cambiarlo alteraría el prompt.
+# La consola distingue las variantes por su id.
+id: calisto_n_bajo
+base: calisto
+traits:
+  N: 0.25

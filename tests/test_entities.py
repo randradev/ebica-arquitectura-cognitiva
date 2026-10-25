@@ -108,7 +108,7 @@ def test_load_without_state_creates_initial_state(manager, tmp_path):
 
 
 def test_load_writes_events_to_jsonl(tmp_path):
-    """Con un bus persistente, `entity.created` y `entity.loaded` quedan en el JSONL."""
+    """Con un bus persistente, `entity.created`, `entity.loaded` e `identity.loaded` quedan en el JSONL."""
     log = JsonlEventLog(tmp_path)
     manager = EntityManager(tmp_path, EventBus(log))
     manager.create(make_config())
@@ -116,7 +116,7 @@ def test_load_writes_events_to_jsonl(tmp_path):
 
     events = log.read("aurora", loaded.state.last_loaded_at)
 
-    assert [event.type for event in events] == ["entity.created", "entity.loaded"]
+    assert [event.type for event in events] == ["entity.created", "entity.loaded", "identity.loaded"]
 
 
 def test_missing_required_field_gives_readable_error(manager, tmp_path):

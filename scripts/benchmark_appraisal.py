@@ -28,6 +28,7 @@ import yaml
 from dotenv import load_dotenv
 
 from ebica.core.events import EventBus
+from ebica.entities.manager import EntityManager
 from ebica.llm.client import LLMClient, LLMError
 from ebica.perception.appraisal import (
     APPRAISAL_PROMPT_VERSION,
@@ -449,16 +450,40 @@ def render_report(
     return "\n".join(lines)
 
 
-def load_cases(split: str) -> tuple[dict, list[dict]]:
-    """Lee el perfil de la entidad y los casos del conjunto pedido (dev, test o all)."""
+def load_cases(split: str, case_ids: list[str] | None = None) -> tuple[dict, list[dict]]:
+    """
+    Lee el perfil fijo del benchmark y los casos del conjunto pedido (dev, test o all).
+
+    `case_ids` limita la ejecución a esos casos (p. ej. volver a medir t19).
+    """
     data = yaml.safe_load(CASES_PATH.read_text(encoding="utf-8"))
     cases = [c for c in data["cases"] if split == "all" or c["split"] == split]
+    if case_ids:
+        cases = [c for c in cases if c["id"] in case_ids]
+        if not cases:
+            sys.exit(f"Ningún caso de {split} coincide con {case_ids}")
     return data["entity"], cases
+
+
+def entity_profile(entity_id: str) -> dict:
+    """
+    Perfil de una entidad real de `entities/` para el appraisal.
+
+    Usa `appraisal_profile` o, si falta, la descripción. Solo lee la
+    configuración: no carga la entidad ni escribe su estado.
+    """
+    config = EntityManager(ROOT / "entities", EventBus()).read_config(entity_id)
+    return {"name": config.name, "profile": config.appraisal_profile or config.description}
 
 
 async def main_async(args: argparse.Namespace) -> None:
     """Ejecuta las variantes pedidas, imprime el resumen y escribe el informe si se pidió."""
-    entity, cases = load_cases(args.split)
+    entity, cases = load_cases(args.split, args.cases)
+    if args.entity:
+        # Con el perfil de una entidad real, las métricas no son comparables con
+        # el informe de CP1 (otro perfil); sirve para casos puntuales como t19.
+        entity = entity_profile(args.entity)
+        print(f"Perfil de la entidad: {entity['name']}", flush=True)
     results: dict[str, list[Trial]] = {}
     async with LLMClient.from_env(EventBus()) as client:
         if not await client.is_available():
@@ -491,6 +516,8 @@ def main() -> None:
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS))
     parser.add_argument("--output", help="Ruta del informe Markdown (si se omite, se imprime)")
+    parser.add_argument("--cases", nargs="+", help="Ids de los casos a ejecutar (por defecto, todos los del conjunto)")
+    parser.add_argument("--entity", help="Usar el perfil de una entidad de entities/ en lugar del fijo del benchmark")
     asyncio.run(main_async(parser.parse_args()))
 
 

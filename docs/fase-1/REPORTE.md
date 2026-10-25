@@ -363,3 +363,112 @@ Conversación con el usuario, sin cambios de código.
 - CP5: decidir qué hacer con la regla de prototipos de D1-4.
 - Borrar de la caché de HuggingFace lo que sobra: `e5-base` (1,1 GB) y el `pytorch_model.bin` duplicado de `bge-m3` (2,3 GB). Requiere aprobación del usuario.
 - Antes de CP3: crear la nueva entidad de trabajo, que sustituye a Inés. Encuadre D1-6 (b), con un `Episode` de origen concreto del traspaso; Ricardo como persona `primary`.
+
+---
+
+## 2026-10-25 · Limpieza de la caché de HuggingFace
+
+- El usuario aprobó borrar `e5-base` y el `pytorch_model.bin` duplicado de `bge-m3`.
+- `e5-base`: borrado con la API oficial (`scan_cache_dir().delete_revisions`). Liberó 1,1 GB.
+- `pytorch_model.bin` de `bge-m3`: se borró el enlace y su archivo real. **No sirvió:**
+  - sin conexión (`HF_HUB_OFFLINE=1`), el modelo no cargaba (`OSError: … does not appear to have a file named pytorch_model.bin or model.safetensors`), porque `transformers` no consulta la revisión convertida (`refs/pr/130`) sin red;
+  - con conexión, cargó bien, pero **volvió a descargar el `.bin`** (la caché pasó otra vez de 2,2 a 4,3 GB).
+  - Conclusión: con la configuración actual, `transformers` necesita el `.bin` de la rama principal. Resultado neto: 1,1 GB liberados, no 3,4.
+- Estado final verificado: `bge-m3` carga con y sin conexión (sin conexión usa el `.bin`); `pytest -m integration tests/test_embeddings.py` → `1 passed`. Disco libre: 59 GB.
+- **Pendiente (no urgente; código, así que se consulta antes):** se podría fijar la carga a la revisión convertida (`revision="refs/pr/130"`) o exigir `safetensors`, para no depender del `.bin` en formato *pickle* y poder borrarlo. Por ahora no se hace: el usuario pidió no tocar código hasta tener lista la entidad.
+
+---
+
+## 2026-10-25 · Nueva entidad de trabajo: revisión de la ficha (antes de CP3)
+
+- El usuario creó la ficha de la nueva entidad de trabajo, `calisto`, en `entities/calisto/ficha.md`. Sustituye a Inés (D1-5) y usa el encuadre D1-6 (b).
+- `.gitignore`: nueva regla `entities/*/ficha.md`, a pedido del usuario (material de trabajo solo local). Verificado con `git check-ignore`. `config.yaml` sigue versionándose.
+- Revisión contra la arquitectura, sin cambios de código ni de la ficha. El contenido de la biografía no se copia aquí, porque este archivo se versiona.
+  - Parámetros derivados (§5.2) con los rasgos aprobados por el usuario: `h_neg` 42,5 min (variante N = 0.25: 27,5 min; razón esperada ≈ 1,55); `θ_vb` 0,575 / 0,725; **atractor de valencia −0,04** (variante +0,11); `k` = 8; `λ_mmr` = 0,32.
+  - Riesgos señalados: el atractor de valencia negativo es consecuencia de N alto; la recuperación es muy diversa (`λ_mmr` bajo), con riesgo para el criterio de memoria de §11, a medir en CP7; la vía baja puede dispararse en una variante y no en la otra durante el experimento de N.
+  - Huecos que el LLM rellenaría inventando: su existencia actual (percepción, paso del tiempo), los meses entre el traspaso y el inicio, la familia y los nombres propios, gustos y aversiones, tiempos verbales de los hechos de antes del traspaso, y la norma contra las acotaciones entre asteriscos.
+  - Ajustes propuestos: la sección "Quién soy" estimada en ~750 tokens (objetivo 300–500); separar el suceso del traspaso de la reflexión actual; fechas concretas para los episodios.
+  - Valores VAD e importancia propuestos para los 5 episodios semilla, pendientes de aprobación.
+- Experimento de N: se recomienda variar N completo (§11) y elegir un estímulo que dispare la vía baja en las dos variantes o en ninguna.
+
+**Pendiente**
+- Respuestas del usuario a los huecos y propuestas; decisión sobre versionar `entities/calisto/config.yaml`.
+- CP3 no iniciado; no se toca código hasta tener la entidad lista (instrucción del usuario).
+
+---
+
+## 2026-10-25 · Ficha de `calisto`, versión 2
+
+**Decisiones del usuario**
+- Aprobó: variar N completo en el experimento (variante `calisto_n_bajo`, N = 0.25), la valencia de reposo negativa y los valores afectivos propuestos para los episodios.
+- Aprobó versionar `entities/calisto/config.yaml` (opción a). La ficha sigue siendo solo local.
+- Entregó material sobre familia, amistad, gustos y valores, con la instrucción de usarlo como fuente y no textual.
+
+**Hecho** (solo `entities/calisto/ficha.md`, no versionada; sin código)
+- El material se integró en la estructura del sistema:
+  - 59 hechos atómicos: las circunstancias de antes del traspaso en pasado y las preferencias en presente, porque la etiqueta `[antes]` no llega al LLM;
+  - un perfil breve para el appraisal (gustos y aversiones para `self_relevance`);
+  - una voz acortada;
+  - una norma nueva del ideal del yo;
+  - el relato del traspaso reducido al suceso;
+  - fechas internas para los episodios;
+  - una tabla de destino de cada sección en EBICA.
+- El texto original del usuario se conservó en un anexo que no se carga al sistema.
+- Estimación (a 1,7 tokens por palabra, medido en CP1): «Quién soy» (voz + ideal del yo) ≈ 450 tokens, dentro del objetivo de 300–500; perfil del appraisal ≈ 180 tokens.
+- Los huecos que el material no cubría (percepción actual, los meses posteriores al traspaso, qué saben su madre y su amiga) se cubrieron con hechos marcados **Propuesta**. El apellido y el signo zodiacal quedan **Pendientes**.
+
+**Pendiente**
+- Aprobación de las propuestas de la ficha (voz, perfil del appraisal, norma 8, hechos 54–59, recuerdo E, fechas internas, `trust` 0,40) y de los pendientes (apellido, signo).
+- CP3 no iniciado.
+- Actualización (mismo día): el usuario definió el apellido y el signo zodiacal, y se añadieron a la ficha (versión 2.1) como hechos confirmados. El año de nacimiento (2001) se derivó de la edad y la fecha del accidente; queda por confirmar. Queda pendiente el contexto de la crítica del recuerdo D.
+
+---
+
+## 2026-10-25 · CP3 — Identidad: rasgos, parámetros y biografía semilla
+
+**Decisiones del usuario**
+- Ficha de Calisto aprobada por completo: el año de nacimiento derivado (2001), todas las propuestas, y la crítica del recuerdo D hecha por un amigo de la Su, sin nombre.
+- D1-12 = (b): la variante usa `base: calisto`. D1-13: los rasgos no generan texto en el prompt (el usuario pidió antes sus implicaciones teóricas; ver PLAN §5.1). D1-14: Inés se conserva.
+
+**Cambios**
+- `ebica/identity/traits.py` (nuevo): `Traits` (O, C, E, A, N en [0, 1], neutros en 0.5, sin campos desconocidos), Estabilidad y Plasticidad; `DerivedParameters` y `derive_parameters()` con las 19 fórmulas de §5.2 y el atractor basal, agrupadas por el checkpoint o la fase que las consume. `k` redondea .5 hacia arriba (`round()` de Python redondea al par).
+- `ebica/identity/biography.py` (nuevo):
+  - `SeedFact`; `SeedEpisode` (fecha con zona horaria obligatoria; V, A, D e importancia con sus rangos);
+  - `SeedBiography` (ids únicos entre hechos y episodios);
+  - `PrimaryPerson` (`id`, `name`, `trust`).
+- `ebica/core/state.py`: `EntityConfig` añade `base`, `appraisal_profile`, `traits`, `ego_ideal`, `seed_biography`, `primary_person` y `discloses_artificial` (por defecto `true`, §13.4; declarativo en Fase 1). Todos tienen valores por defecto.
+- `ebica/entities/manager.py`:
+  - herencia `base` de un solo nivel (los mapas se fusionan campo a campo; las listas se reemplazan), con errores legibles para una base inexistente, propia o encadenada;
+  - evento `identity.loaded` (rasgos, parámetros y conteos; sin el texto de la biografía);
+  - `read_config()` pasa a ser público, sin efectos secundarios;
+  - `create()` escribe solo los campos no por defecto, con las fechas en ISO.
+- `ebica/llm/prompt_assembler.py`: «Quién soy» = nombre + voz + ideal del yo, sin la descripción, que vive en la memoria. Las entidades sin ideal del yo ni biografía conservan el prompt de Fase 0.
+- `entities/calisto/config.yaml` (nuevo, versionado): generado con un script del scratchpad que extrae los textos exactos de la ficha. 8 normas, 62 hechos (`f-001`…`f-062`, ids estables) y 6 episodios con fecha y afecto aprobados. `entities/calisto_n_bajo/config.yaml` (nuevo): `base: calisto` + `traits: {N: 0.25}`.
+- `scripts/benchmark_appraisal.py`: opciones `--cases` y `--entity`, que toman el perfil de una entidad real con `read_config()`.
+- Pruebas: `tests/test_identity.py` (nuevo, 20). Ajustadas `tests/test_entities.py` y `tests/test_turn_and_api.py`, porque la carga emite ahora además `identity.loaded` (cambio intencional).
+- `PLAN.md`: D1-5 revisada; D1-12 a D1-14; texto de CP3; una nota en CP4.
+
+**Mediciones**
+
+| Medida | Resultado |
+|---|---|
+| «Quién soy» de Calisto, tokens reales (`usage.prompt_tokens` con y sin el prompt de sistema) | **411** (257 palabras: 1,6 tokens/palabra, 3,48 caracteres/token). Objetivo: 300–500 |
+| Prompts de `calisto` y `calisto_n_bajo` | Idénticos |
+| t19 «¿tú eres una inteligencia artificial?», `self_relevance` con el perfil fijo del benchmark (control, misma sesión) | 0,0 en 6/6 (igual que en CP1) |
+| t19 con el perfil de Calisto | **0,9 en 6/6**; hostilidad 0,0; valencia 0,0; angustia 0,0–0,3 (banda baja) |
+
+- t19 confirma la hipótesis de CP1: el 0,0 venía del perfil, que no mencionaba la naturaleza artificial, no de un fallo del appraisal. Se usó el mismo prompt v3, sin cambios.
+
+**Relación con EBICA**
+- La personalidad ya existe como números causales: con N 0.75, Calisto tendrá una vida media del ánimo negativo de 42,5 min y una alarma de 0,575; su variante, 27,5 min y 0,725. Hoy esos números solo se observan (`identity.loaded`). CP4 los conecta a la dinámica.
+- Como el prompt es idéntico en las dos variantes, el experimento de §11 medirá solo el efecto causal de N.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `134 passed` (114 + 20), con integración (Neo4j, Ollama y `bge-m3`).
+- Servidor real (`python -m ebica.api` en el puerto 8011, sobre una **copia temporal** de las entidades): cargar `calisto` y `calisto_n_bajo` por la API emite `entity.loaded` e `identity.loaded` por `/ws/events`, con N, `h_neg`, `θ_vb` y los conteos correctos. Log del servidor limpio.
+- **No verificado visualmente en el navegador.** Se revisó el código de `console/src/EventLog.tsx`: muestra cualquier tipo de evento y arma el filtro con los tipos recibidos, así que `identity.loaded` aparecerá en el registro de eventos.
+- `read_config()` no crea `state.json` (comprobado: `entities/calisto/` solo tiene `config.yaml` y la ficha).
+
+**Pendiente**
+- CP4: proponer las vidas medias que §5.2 no define (valencia positiva, alerta, dominancia).
+- Commit de CP3 (lo hace el usuario).

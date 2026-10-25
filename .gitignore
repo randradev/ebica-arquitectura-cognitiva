@@ -13,6 +13,8 @@ __pycache__/
 entities/*/state.json
 entities/*/events/
 entities/*/*.tmp
+# Ficha de diseño del personaje (material de trabajo del usuario, solo local).
+entities/*/ficha.md
 
 # Consola (frontend)
 node_modules/

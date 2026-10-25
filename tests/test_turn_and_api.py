@@ -130,9 +130,10 @@ def test_chat_end_to_end_with_events_and_jsonl(client, tmp_path):
     day_file = next((tmp_path / "aurora" / "events").glob("*.jsonl"))
     logged = [json.loads(line) for line in day_file.read_text(encoding="utf-8").splitlines()]
     assert [event["type"] for event in logged] == [
-        "entity.created", "entity.loaded", "perception.input", "llm.request", "llm.response"
+        "entity.created", "entity.loaded", "identity.loaded",
+        "perception.input", "llm.request", "llm.response",
     ]
-    assert [event["id"] for event in logged[2:]] == [event["id"] for event in live]
+    assert [event["id"] for event in logged[3:]] == [event["id"] for event in live]
 
 
 def test_llm_error_is_reported_in_chat(tmp_path):

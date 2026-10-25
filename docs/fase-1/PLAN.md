@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-11 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). CP3 no iniciado.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3 completado** (entidad de trabajo: Calisto, D1-5 revisada). CP4 no iniciado.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -147,12 +147,15 @@ todo lo que producen los checkpoints anteriores.
 | D1-2 | **Confirmada** | Modelfile derivado `ebica-llama3.1` con `num_ctx 8192`, versionado en el repositorio. |
 | D1-3 | **Confirmada** | `sentence-transformers` + `torch` para CPU; se comparan `multilingual-e5-base` y `bge-m3` en CP2 (descarga de ~3,4 GB aprobada) y se elige uno. |
 | D1-4 | **Confirmada** | Reglas + prototipos de embeddings, con las reglas y los pesos de §5.2. |
-| D1-5 | **Confirmada** (revisable) | Inés como primera entidad, con los rasgos propuestos (se ajustan en CP3), más `ines_n_bajo`. La persona `primary` es **Ricardo**. El usuario pedirá más adelante otra entidad de trabajo en lugar de Inés; el benchmark de CP1 lleva su propio perfil fijo para no depender de ella. |
+| D1-5 | **Revisada** (2026-10-25) | La entidad de trabajo es **Calisto Almendra** (`calisto`), con la variante `calisto_n_bajo` (N 0.25) y Ricardo como `primary`. Su ficha de diseño es local (`entities/calisto/ficha.md`, ignorada por git). Texto original: Inés como primera entidad, con los rasgos propuestos (se ajustan en CP3), más `ines_n_bajo`. La persona `primary` es **Ricardo**. El usuario pedirá más adelante otra entidad de trabajo en lugar de Inés; el benchmark de CP1 lleva su propio perfil fijo para no depender de ella. |
 | D1-6 | **Confirmada: (b)** | La entidad admite ser una IA (`discloses_artificial: true`) y cree que fue una persona cuya conciencia se traspasó, con duda sobre si es ella o una copia. Los detalles del traspaso se siembran en un `Episode` de origen (CP3). |
 | D1-7 | **Confirmada** (provisional hasta Fase 2) | Al cargar se aplica el decaimiento del tiempo real transcurrido; `rest` baja mientras la entidad está descargada. |
 | D1-8 | **Confirmada, con condición** | (a) Intercambio literal. En CP9 se mide cuánto del presupuesto de la WorkingMemory ocupan los recuerdos; si no alcanza, se añade (b), un resumen con el LLM con baja prioridad, previa consulta. |
 | D1-9 | **Confirmada** | `Revision.episode_id` + unicidad `(entity_id, episode_id, version)`; `Self` único por `entity_id`. |
 | D1-10 | **Confirmada** | Conteo aproximado por caracteres, calibrado con `usage.prompt_tokens`. |
+| D1-12 | **Confirmada** (2026-10-25) | La variante experimental se define con `base: calisto` y solo los campos que cambian (N): una sola fuente de verdad para la biografía. No es clonación (Fase 2): no copia memoria ni estado. |
+| D1-13 | **Confirmada** (2026-10-25) | Los rasgos **no** generan texto en el prompt: actúan a través de la dinámica (CB5T: rasgo → parámetro → estado → conducta). En palabras van la voz y el ideal del yo (autoimagen, §5.2 b–c) y, desde CP9, el estado. Así la diferencia entre las variantes de N es solo causal. A revisar en Fase 2: la voz escrita a mano no sigue la deriva de rasgos. |
+| D1-14 | **Confirmada** (2026-10-25) | `entities/ines/config.yaml` se conserva sin cambios; carga con rasgos neutros. |
 | D1-11 | **Confirmada** (2026-10-25) | Búsqueda vectorial con sobremuestreo y filtro posterior por `entity_id`: Neo4j 5.26 busca en todo el índice antes de poder filtrar. Se piden más vecinos que `k` (con un tope) y se descartan los de otras entidades. |
 
 **Ajustes de CP2 (2026-10-25)**
@@ -312,11 +315,13 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 ### CP3 — Identidad: rasgos, parámetros y biografía semilla
 - `ebica/identity/traits.py`: `Traits` (O, C, E, A, N en `[0, 1]`, con el origen `t0` para la deriva futura), Estabilidad y Plasticidad, y `derive_parameters(traits)` con la tabla completa de §5.2 y el atractor basal.
 - `EntityConfig` amplía su esquema con `traits`, `ego_ideal` (lista de normas), `seed_biography` (`facts` y `episodes`), `primary_person` y `discloses_artificial` (D1-6). Las entidades sin rasgos siguen cargando con valores neutros (0.5), para no romper `ejemplo`.
-- `entities/ines/config.yaml` reescrita según D1-5, y `entities/ines_n_bajo/config.yaml`.
-- Evento `identity.loaded` con rasgos y parámetros derivados. Primera sección del Prompt Assembler ("Quién soy"): los rasgos se escriben como descripción de conducta, no como números.
-- **Aceptación:** pytest: cada fórmula de §5.2 con valores conocidos (por ejemplo, N = 0.55 → `h_neg` = 36.5 min); los rasgos fuera de rango se rechazan; `ines` e `ines_n_bajo` cargan; `identity.loaded` aparece en la consola.
+- `entities/calisto/config.yaml` (D1-5 revisada) y `entities/calisto_n_bajo/config.yaml` con `base: calisto` (D1-12). `entities/ines` queda sin cambios (D1-14).
+- Evento `identity.loaded` con rasgos y parámetros derivados. Primera sección del Prompt Assembler ("Quién soy"): voz + ideal del yo; los rasgos no generan texto (D1-13).
+- Volver a medir t19 con el perfil real de la entidad (pendiente de CP1).
+- **Aceptación:** pytest: cada fórmula de §5.2 con valores conocidos (por ejemplo, N = 0.75 → `h_neg` = 42.5 min); los rasgos fuera de rango se rechazan; `calisto`, `calisto_n_bajo`, `ejemplo` e `ines` cargan; las dos variantes reciben el mismo prompt; `identity.loaded` aparece en la consola.
 
 ### CP4 — Afecto, drives y bucle rápido
+- Decisión pendiente (anotada en CP3): §5.2 solo define la vida media de la valencia **negativa** (`h_neg`). Faltan las de la valencia positiva, la alerta y la dominancia; se proponen al iniciar CP4.
 - `ebica/affect/vad.py`: el VAD de §5.4. Decaimiento hacia el atractor con `τ = h / ln 2`, asimétrico en la valencia negativa, con recorte de rangos. La función `decay(x, dt)` tiene forma cerrada y sirve tanto para el tick como para el tiempo transcurrido (D1-7). `apply_impulse()` aplica los impulsos.
 - `ebica/affect/drives.py`: `social`, `novelty` y `rest`, con `e_i += r_i·dt` y el acople `Δvalence ∝ −Σ w_i·Δe_i`.
 - `ebica/core/orchestrator.py`: una tarea asyncio con un tick de ≈1 Hz mientras la entidad está activa, que publica `tick`, `affect.updated` y `drive.updated` muestreados, y `drive.threshold_crossed`.
