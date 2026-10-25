@@ -48,3 +48,35 @@ def drain(queue: asyncio.Queue) -> list:
     while not queue.empty():
         events.append(queue.get_nowait())
     return events
+
+
+# Appraisal de un mensaje neutro, para las pruebas que no miran el afecto.
+NEUTRAL_APPRAISAL = {
+    "user_emotion": {"valence": 0.0, "arousal": 0.2, "dominance": 0.5},
+    "user_intent": "saludar", "topics": ["saludo"], "hostility": 0.0, "distress": 0.0,
+    "self_relevance": 0.0, "goal_congruence": 0.0, "novelty": 0.0,
+    "commitments": [], "mentioned_people": [],
+}
+
+
+def turn_transport(*pieces: str, appraisal: dict | str = NEUTRAL_APPRAISAL):
+    """
+    Servidor LLM simulado para un turno completo (CP5): appraisal + diálogo.
+
+    Si la petición pide salida estructurada (`response_format`), es el
+    appraisal y responde `appraisal` (un dict, o un texto para simular JSON
+    roto); si no, responde el diálogo con `pieces`. Devuelve el transporte y
+    la lista donde se guardan los cuerpos recibidos, para inspeccionarlos.
+    """
+    bodies: list[dict] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        """Elige la respuesta según el tipo de llamada."""
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "response_format" in body:
+            text = appraisal if isinstance(appraisal, str) else json.dumps(appraisal)
+            return httpx.Response(200, content=sse(text))
+        return httpx.Response(200, content=sse(*pieces))
+
+    return httpx.MockTransport(handle), bodies

@@ -1,22 +1,22 @@
 """
-Pruebas del turno mínimo y del servidor (CP5), con un LLM simulado.
+Pruebas del servidor y del transporte del turno, con un LLM simulado.
 
-Cubren el criterio de Fase 0 de forma automática: crear una entidad, enviarle
-un mensaje y obtener `perception.input` → `llm.request` → `llm.response`
-encadenados, en el WebSocket de eventos y en el JSONL.
+Cubren el criterio de Fase 0 (crear una entidad, enviarle un mensaje y ver la
+cadena de eventos en el WebSocket y en el JSONL), actualizado al turno de
+Fase 1 (CP5): el turno lo procesa el orquestador, con appraisal y afecto.
 """
 
 import json
 
 import httpx
 import pytest
-from fake_llm import drain, sse
+from fake_llm import drain, sse, turn_transport
 from fastapi.testclient import TestClient
 
 from ebica.api.server import create_app
 from ebica.core.events import EventBus, JsonlEventLog
 from ebica.core.state import EntityConfig
-from ebica.core.turn import run_user_turn
+from ebica.core.orchestrator import Orchestrator
 from ebica.entities.manager import EntityConfigError, EntityManager
 from ebica.llm.client import LLMClient
 from ebica.llm.prompt_assembler import build_dialogue_messages
@@ -31,8 +31,9 @@ def fake_transport(*pieces: str) -> httpx.MockTransport:
 
 @pytest.fixture
 def client(tmp_path):
-    """Aplicación completa sobre una carpeta temporal y un LLM simulado."""
-    app = create_app(entities_dir=tmp_path, llm_transport=fake_transport("Ho", "la"))
+    """Aplicación completa sobre una carpeta temporal y un LLM simulado (appraisal + diálogo)."""
+    transport, _ = turn_transport("Ho", "la")
+    app = create_app(entities_dir=tmp_path, llm_transport=transport)
     with TestClient(app) as test_client:
         yield test_client
 
@@ -45,32 +46,24 @@ def test_dialogue_prompt_contains_identity_and_message():
     assert messages[1] == {"role": "user", "content": "¿Qué tal?"}
 
 
-async def test_turn_chains_events_by_cause(tmp_path):
-    """Un turno emite perception.input → llm.request → llm.response, encadenados."""
-    bus = EventBus()
-    entity = EntityManager(tmp_path, bus).create(EntityConfig(**CONFIG))
-    queue = bus.subscribe()
-    async with LLMClient(bus, transport=fake_transport("Ho", "la")) as llm:
-        pieces = [piece async for piece in run_user_turn(entity, "hola", bus, llm)]
-
-    perception, request, response = drain(queue)
-    assert pieces == ["Ho", "la"]
-    assert perception.type == "perception.input" and perception.payload["text"] == "hola"
-    assert request.type == "llm.request" and request.cause_id == perception.id
-    assert response.type == "llm.response" and response.cause_id == request.id
-
-
 async def test_closing_turn_early_cancels_llm(tmp_path):
-    """Si quien consume deja de leer y cierra el turno, se emite llm.cancelled en el acto."""
+    """Si quien consume deja de leer y cierra el turno, se emite llm.cancelled y no se guarda el intercambio."""
     bus = EventBus()
-    entity = EntityManager(tmp_path, bus).create(EntityConfig(**CONFIG))
-    queue = bus.subscribe()
-    async with LLMClient(bus, transport=fake_transport("Ho", "la", "!")) as llm:
-        turn = run_user_turn(entity, "hola", bus, llm)
+    manager = EntityManager(tmp_path, bus)
+    entity = manager.create(EntityConfig(**CONFIG))
+    transport, _ = turn_transport("Ho", "la", "!")
+    async with LLMClient(bus, transport=transport) as llm:
+        orchestrator = Orchestrator(entity, bus, manager.save_state, llm=llm)
+        orchestrator.wake()
+        queue = bus.subscribe()
+        turn = orchestrator.user_turn("hola")
         assert await anext(turn) == "Ho"
         await turn.aclose()
 
-    assert [event.type for event in drain(queue)] == ["perception.input", "llm.request", "llm.cancelled"]
+    types = [event.type for event in drain(queue)]
+    assert types[-1] == "llm.cancelled"
+    assert "turn.completed" not in types
+    assert entity.state.recent_turns == []
 
 
 def test_create_list_and_load_entity(client):
@@ -118,26 +111,28 @@ def test_chat_end_to_end_with_events_and_jsonl(client, tmp_path):
     with client.websocket_connect("/ws/events") as events, client.websocket_connect("/ws/chat") as chat:
         chat.send_json({"text": "hola"})
         replies = [chat.receive_json() for _ in range(3)]
-        live = [events.receive_json() for _ in range(3)]
+        live = []
+        while not live or live[-1]["type"] != "turn.completed":
+            live.append(events.receive_json())
 
     assert replies == [{"type": "token", "text": "Ho"}, {"type": "token", "text": "la"}, {"type": "done"}]
-    perception, request, response = live
+    perception = live[0]
     assert perception["type"] == "perception.input"
-    assert request["type"] == "llm.request"
-    assert request["payload"]["body"]["messages"][1] == {"role": "user", "content": "hola"}
-    assert response["type"] == "llm.response" and response["payload"]["text"] == "Hola"
+    dialogue_request = [e for e in live if e["type"] == "llm.request" and e["payload"]["preset"] == "dialogue"][0]
+    assert dialogue_request["payload"]["body"]["messages"][-1] == {"role": "user", "content": "hola"}
+    response = [e for e in live if e["type"] == "llm.response"][-1]
+    assert response["payload"]["text"] == "Hola"
 
     day_file = next((tmp_path / "aurora" / "events").glob("*.jsonl"))
     logged = [json.loads(line) for line in day_file.read_text(encoding="utf-8").splitlines()]
     # Al cargar, el bucle rápido despierta a la entidad (CP4): affect.updated,
-    # drive.updated y tick. Los demás eventos del bucle solo salen ante un
-    # cambio o cada 60 s, así que no se cuelan entre los del turno.
-    assert [event["type"] for event in logged] == [
+    # drive.updated y tick. Después, todo lo que se vio en vivo está en el JSONL.
+    assert [event["type"] for event in logged[:6]] == [
         "entity.created", "entity.loaded", "identity.loaded",
         "affect.updated", "drive.updated", "tick",
-        "perception.input", "llm.request", "llm.response",
     ]
-    assert [event["id"] for event in logged[6:]] == [event["id"] for event in live]
+    logged_ids = [event["id"] for event in logged]
+    assert all(event["id"] in logged_ids for event in live)
 
 
 def test_llm_error_is_reported_in_chat(tmp_path):

@@ -65,6 +65,14 @@ class EntityConfig(BaseModel):
     discloses_artificial: bool = True
 
 
+class ConversationTurn(BaseModel):
+    """Un intercambio literal: lo que dijo la persona y lo que respondió la entidad (D1-24)."""
+
+    user: str
+    entity: str
+    ts: datetime
+
+
 class EntityState(BaseModel):
     """
     Snapshot mínimo del estado vivo de una entidad, guardado en `state.json`.
@@ -86,3 +94,7 @@ class EntityState(BaseModel):
     # Último instante en que avanzó la dinámica; al cargar, el tiempo desde
     # aquí se aplica como tiempo descargada (D1-7).
     last_tick_at: datetime | None = None
+    # Últimos intercambios, del más antiguo al más reciente (CP5, D1-24). Se
+    # guardan para que la conversación sobreviva a un reinicio; la memoria de
+    # largo plazo son los episodios de Neo4j (CP6).
+    recent_turns: list[ConversationTurn] = []

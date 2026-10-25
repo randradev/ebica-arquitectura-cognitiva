@@ -70,6 +70,10 @@ class LLMResult:
     # Segundos desde el envío hasta el primer fragmento de texto y hasta el final.
     first_token_s: float | None = None
     total_s: float | None = None
+    # Ids de los eventos `llm.request` y `llm.response`, para encadenar con
+    # `cause_id` lo que la respuesta provoque (p. ej. los impulsos del appraisal).
+    request_event_id: str | None = None
+    response_event_id: str | None = None
 
 
 class LLMClient:
@@ -136,15 +140,22 @@ class LLMClient:
         preset: str = "dialogue",
         cause_id: str | None = None,
         response_schema: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        result: LLMResult | None = None,
     ) -> AsyncIterator[str]:
         """
         Genera una respuesta y la entrega fragmento a fragmento.
 
         `messages` usa el formato de OpenAI (`{"role": ..., "content": ...}`).
         `response_schema` (opcional) es un esquema JSON que restringe la salida
-        (ver `_build_body`). Para cancelar, cancela la tarea que recorre el iterador.
+        (ver `_build_body`). `temperature` reemplaza la del preset (el diálogo
+        la modula según el ánimo, D1-25). Si se pasa `result`, se rellena con
+        el texto, las latencias y los ids de los eventos al terminar. Para
+        cancelar, cancela la tarea que recorre el iterador.
         """
-        return self._generate(messages, entity_id, preset, cause_id, LLMResult(), response_schema)
+        return self._generate(
+            messages, entity_id, preset, cause_id, result or LLMResult(), response_schema, temperature
+        )
 
     async def complete(
         self,
@@ -154,10 +165,13 @@ class LLMClient:
         preset: str = "dialogue",
         cause_id: str | None = None,
         response_schema: dict[str, Any] | None = None,
+        temperature: float | None = None,
     ) -> LLMResult:
         """Genera una respuesta completa (usa streaming por dentro) y devuelve el resultado."""
         result = LLMResult()
-        async for _ in self._generate(messages, entity_id, preset, cause_id, result, response_schema):
+        async for _ in self._generate(
+            messages, entity_id, preset, cause_id, result, response_schema, temperature
+        ):
             pass
         return result
 
@@ -166,6 +180,7 @@ class LLMClient:
         messages: list[dict[str, str]],
         sampling: SamplingPreset,
         response_schema: dict[str, Any] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """
         Arma el cuerpo de la petición `/chat/completions` según el preset.
@@ -177,7 +192,7 @@ class LLMClient:
         body: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": sampling.temperature,
+            "temperature": sampling.temperature if temperature is None else temperature,
             "max_tokens": sampling.max_tokens,
             "stream": True,
             # Pide el conteo de tokens en el último fragmento del streaming.
@@ -200,6 +215,7 @@ class LLMClient:
         cause_id: str | None,
         result: LLMResult,
         response_schema: dict[str, Any] | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[str]:
         """
         Envía la petición, recorre el streaming y emite los eventos.
@@ -208,13 +224,14 @@ class LLMClient:
         """
         if preset not in PRESETS:
             raise ValueError(f"Preset desconocido: '{preset}'. Disponibles: {sorted(PRESETS)}")
-        body = self._build_body(messages, PRESETS[preset], response_schema)
+        body = self._build_body(messages, PRESETS[preset], response_schema, temperature)
 
         # El evento lleva el cuerpo completo: es exactamente lo que recibe el
         # modelo, para poder verlo en la consola (§8.3, "PROMPT EXACTO").
         request_event = self.bus.emit(
             entity_id, "llm.request", {"preset": preset, "body": body}, cause_id=cause_id
         )
+        result.request_event_id = request_event.id
         started = time.perf_counter()
         chunks: list[str] = []
 
@@ -250,7 +267,7 @@ class LLMClient:
 
         result.text = "".join(chunks)
         result.total_s = time.perf_counter() - started
-        self.bus.emit(
+        response_event = self.bus.emit(
             entity_id,
             "llm.response",
             {
@@ -262,6 +279,7 @@ class LLMClient:
             },
             cause_id=request_event.id,
         )
+        result.response_event_id = response_event.id
 
     def _emit_error(self, entity_id: str, message: str, request_id: str) -> None:
         """

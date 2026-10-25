@@ -18,7 +18,10 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationEr
 # qué prompt produjo cada medición (v0 fue el provisional de Fase 0; v3 corrige
 # ironía, autorrelevancia y compromisos tras el conjunto dev del benchmark).
 # Se probó una v4 que escribía la hostilidad antes que la emoción; empeoró la
-# valencia en dev y se descartó (REPORTE Fase 1, CP1).
+# valencia en dev y se descartó (REPORTE Fase 1, CP1). Una v5 (CP5, D1-21)
+# pedía puntuar hostilidad y angustia por separado en los mensajes mixtos;
+# empeoró la valencia y las personas mencionadas en dev y se descartó sin
+# tocar test (REPORTE Fase 1, CP5).
 APPRAISAL_PROMPT_VERSION = "v3"
 
 
@@ -100,6 +103,20 @@ class Appraisal(BaseModel):
 
 class AppraisalError(ValueError):
     """La salida del LLM no es JSON o no cumple el esquema del appraisal."""
+
+
+def neutral_appraisal() -> Appraisal:
+    """
+    Appraisal sin carga: todo en 0 y listas vacías.
+
+    Se usa si el appraisal falla (JSON inválido, servidor caído): el turno
+    sigue sin impulsos afectivos en vez de romperse (PLAN, riesgos).
+    """
+    return Appraisal(
+        user_emotion=UserEmotion(valence=0.0, arousal=0.0, dominance=0.0),
+        user_intent="", topics=[], hostility=0.0, distress=0.0, self_relevance=0.0,
+        goal_congruence=0.0, novelty=0.0, commitments=[], mentioned_people=[],
+    )
 
 
 def appraisal_json_schema() -> dict[str, Any]:

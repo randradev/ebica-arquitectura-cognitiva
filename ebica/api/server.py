@@ -26,7 +26,6 @@ from pydantic import BaseModel, Field
 from ebica.core.events import ENTITY_ID_PATTERN, EventBus, JsonlEventLog
 from ebica.core.orchestrator import Orchestrator
 from ebica.core.state import EntityConfig
-from ebica.core.turn import run_user_turn
 from ebica.entities.manager import Entity, EntityConfigError, EntityManager
 from ebica.llm.client import LLMClient, LLMError
 
@@ -52,7 +51,7 @@ class Engine:
         """
         await self.deactivate()
         self.active = entity
-        self.orchestrator = Orchestrator(entity, self.bus, self.manager.save_state)
+        self.orchestrator = Orchestrator(entity, self.bus, self.manager.save_state, llm=self.llm)
         self.orchestrator.start()
 
     async def deactivate(self) -> None:
@@ -155,21 +154,21 @@ def create_app(
 
         Recibe `{"text": "..."}` y responde `{"type": "token", "text": ...}` por
         fragmento, y al final `{"type": "done"}` o `{"type": "error", "message": ...}`.
-        Los turnos se procesan de uno en uno (Fase 0 no tiene cola de GPU).
+        El turno lo procesa el orquestador (§6.2); aquí solo se transporta.
         """
         await websocket.accept()
         try:
             while True:
                 message = await websocket.receive_json()
                 text = str(message.get("text", "")).strip()
-                if engine.active is None:
+                if engine.orchestrator is None:
                     await websocket.send_json({"type": "error", "message": "No hay una entidad cargada"})
                     continue
                 if not text:
                     await websocket.send_json({"type": "error", "message": "Mensaje vacío"})
                     continue
                 try:
-                    turn = run_user_turn(engine.active, text, engine.bus, engine.llm)
+                    turn = engine.orchestrator.user_turn(text)
                     async with aclosing(turn) as pieces:
                         async for piece in pieces:
                             await websocket.send_json({"type": "token", "text": piece})

@@ -3,6 +3,7 @@ import { AffectPanel } from './AffectPanel'
 import { Chat } from './Chat'
 import { EntityPanel } from './EntityPanel'
 import { EventLog } from './EventLog'
+import { TurnPanel } from './TurnPanel'
 import { useEvents } from './useEvents'
 
 /**
@@ -26,6 +27,7 @@ export default function App() {
         <Chat activeId={active?.id ?? null} activeName={active?.name ?? null} />
       </div>
       <div className="right">
+        <TurnPanel events={events} activeId={active?.id ?? null} />
         <EventLog events={events} connected={connected} />
       </div>
     </main>

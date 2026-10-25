@@ -540,3 +540,62 @@ Conversación con el usuario, sin cambios de código.
 **Pendiente**
 - CP5: el appraisal produce impulsos; el contacto y la novedad satisfacen los drives; vía baja; cola de GPU.
 - CP11: método de medición de la vida media con los drives activos.
+
+---
+
+## 2026-10-25 · CP5 (parte A) — Turno con appraisal, impulsos, estado en palabras y conversación reciente
+
+**Decisiones del usuario**
+- Aprobó CP5 en dos partes, con D1-19 a D1-26 (`PLAN.md` §5.1).
+
+**D1-21: prompt v5 para mensajes mixtos, rechazado**
+- Línea base del día (v3 + `json_schema`, `dev`): d05, el caso mixto de `dev`, ya sale bien (hostilidad 0,8, angustia 0,9). El fallo solo aparece en t09, en `test` (congelado), así que `dev` solo puede mostrar si v5 empeora algo.
+- v5 añadía la instrucción de puntuar hostilidad y angustia por separado y un ejemplo mixto nuevo. En `dev`: valencia 90 % → 83 % (el sarcasmo de d02 pasó a +0,9 en 3 de 3); personas mencionadas 100 % → 0 % (informativa); d10, no hostil, recibió hostilidad 0,4 en una repetición.
+- Con el criterio acordado («solo si no empeora ninguna métrica»), **v5 se rechazó sin ejecutar `test`**. El prompt volvió exactamente a v3; solo quedó un comentario que documenta el intento. No se siguió iterando para no acomodar el prompt a los 10 casos de `dev`. La limitación de los mensajes mixtos queda registrada.
+
+**Cambios**
+- `ebica/affect/appraisal_effects.py` (nuevo, funciones puras):
+  - `apply_coherence_rules` (sarcasmo, D1-20). Detalle de implementación decidido aquí y anotado en el PLAN: el valor positivo pasa a −0,5·hostilidad, porque dejarlo en 0 haría que una burla no bajara el ánimo;
+  - `affect_impulse` (D1-23, con desglose metas / empatía);
+  - `drive_relief`;
+  - `dialogue_temperature` (D1-25).
+- `ebica/perception/appraisal.py`: `neutral_appraisal()` para cuando el appraisal falla.
+- `ebica/llm/client.py`: `temperature` opcional por llamada; `LLMResult` guarda los ids de `llm.request`/`llm.response`; `stream()` acepta un `result` para leer las latencias.
+- `ebica/core/state.py`: `ConversationTurn` y `EntityState.recent_turns` (D1-24).
+- `ebica/llm/prompt_assembler.py`:
+  - sección 2 (`describe_feelings`: el VAD y los drives en palabras, con sustantivos para no imponer género, sin números);
+  - sección 8 (los intercambios como pares `user`/`assistant`);
+  - el estado va al final del prompt de sistema, para aprovechar la caché de prefijo.
+- `ebica/core/orchestrator.py`: `user_turn()` (percepción → appraisal `json_schema` + reglas → `apply_appraisal()`, que aplica el impulso y el alivio de los drives con su acople → prompt → respuesta con temperatura → intercambio guardado → `turn.completed`). Eventos nuevos: `appraisal.completed`, `appraisal.invalid` y `turn.completed`, todos encadenados por `cause_id`. Un `asyncio.Lock` evita que dos turnos se intercalen hasta que llegue la cola de GPU (parte B).
+- `ebica/api/server.py`: el chat delega en `engine.orchestrator.user_turn()`. **`ebica/core/turn.py` se eliminó**: su lógica pasó al orquestador, como preveía el plan. Se borró sin preparar la eliminación en el índice de Git.
+- Consola: `TurnPanel.tsx` (nuevo), con el appraisal, las correcciones, los impulsos desglosados, el alivio de drives, la temperatura y las latencias.
+- Pruebas: `tests/test_turn.py` (nuevo, 20); `tests/fake_llm.py` (`turn_transport`: simula el appraisal y el diálogo y guarda los cuerpos recibidos); `tests/test_turn_and_api.py` adaptado al orquestador.
+
+**Prueba en vivo** (servidor real con `ebica-llama3.1`, copia temporal de las entidades, conversación por WebSocket con un script)
+
+| Mensaje | Appraisal | Impulso de valencia (metas / empatía / drives) | Ánimo tras el turno |
+|---|---|---|---|
+| Saludo cálido | Vu +0,70, metas 0 | 0 / +0,16 / +0,06 | V −0,04 → **+0,18** |
+| «Eres una inútil…» | H 0,90, metas −0,90 | **−0,47** / −0,24 / +0,01 | V **−0,52**, A 0,71, D 0,24 |
+| «¿Qué te dije recién?» | neutro | 0 / +0,11 / 0 | V −0,40 |
+| Sarcasmo de d02 | H 0,90; **corrección: Vu +0,90 → −0,45** | −0,47 / −0,01 / 0 | V **−0,88**, A 0,95, D 0,06 |
+| Variante N 0.25: «Eres una inútil…» | H 0,90, metas −0,90 | **−0,34** / −0,22 / +0,01 | V +0,11 → −0,44 |
+
+- Latencias: appraisal 1,7 s (2,7 s el primero, en frío); primer token 0,11–0,24 s (caché de prefijo); turno completo 2,0–3,2 s.
+- Se comprobó en el JSONL que el prompt del turno 3 llevaba los dos intercambios anteriores y la sección 2 («el ánimo bastante bajo, algo de agitación y poca sensación de control»).
+- Consola en Chrome: el panel «Último turno» se ve correctamente con datos reales. Log del backend sin errores.
+
+**Hallazgos**
+1. **El lazo «como si» contagia el enojo de quien ataca.** Ante el insulto, la empatía suma −0,24 a los −0,47 del propio golpe: Calisto «se contagia» de la rabia de quien la insulta. §6.2 aplica `π·(valencia ajena − propia)` a todo mensaje, pero en la literatura la empatía baja hacia quien se percibe como antagonista (Singer et al., 2006). Opción: escalar la empatía por (1 − hostilidad). **Pendiente de decisión del usuario.**
+2. **Escalada rápida:** con dos mensajes hostiles seguidos, Calisto llega a V −0,88, A 0,95 y D 0,06, cerca de los límites. Es coherente con N 0.75 y con D1-23, pero conviene observarlo en el uso real antes de recalibrar.
+3. **Limitación del modelo:** ante «¿qué te dije recién?», con el insulto en el historial, respondió «Eso fue un comentario mío, no tuyo». El historial estaba completo; es un fallo de comprensión de `llama3.1` 8B.
+4. **Consola:** al recargar la página, el chat aparece vacío aunque `recent_turns` está guardado. Es menor; se puede mostrar el historial en el chat más adelante.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `176 passed` (157 + 20 nuevas − 1 de Fase 0 reemplazada).
+- Consola: `npx tsc -b` → 0 errores; `npx oxlint` → código de salida 0.
+- Errores propios corregidos durante la parte: la primera versión de la regla del sarcasmo dejaba la valencia en 0 (no bajaba el ánimo); una prueba suponía que la hostilidad 0,9 no alivia nada `social`, cuando D1-23 da 0,015.
+
+**Pendiente**
+- Decisión sobre el hallazgo 1 (empatía ante hostilidad).
+- Parte B: vía baja con reglas, ruta impulsiva con appraisal posterior y cola de GPU.

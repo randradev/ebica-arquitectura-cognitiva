@@ -9,22 +9,47 @@ retraso.
 
 Al despertar (cargar), aplica el tiempo que estuvo descargada (D1-7).
 
-La cola de GPU y el turno con appraisal llegan en CP5; la máquina de modos y
-el reloj simulado, en Fase 2. Aquí el reloj solo es inyectable (`now`), para
-probar con tiempo falso.
+El turno del usuario (CP5, §6.2 sin las etapas de fases posteriores) también
+vive aquí: percepción → appraisal → impulsos y drives → prompt → respuesta.
+La API solo transporta. La cola de GPU y la vía baja llegan en CP5 parte B;
+la máquina de modos y el reloj simulado, en Fase 2. El reloj solo es
+inyectable (`now`), para probar con tiempo falso.
 """
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+import time
+from collections.abc import AsyncIterator, Callable
+from contextlib import aclosing
 from datetime import datetime, timezone
 
+from ebica.affect.appraisal_effects import (
+    affect_impulse,
+    apply_coherence_rules,
+    dialogue_temperature,
+    drive_relief,
+)
 from ebica.affect.drives import DriveDynamics, advance_drives, crossed_thresholds, valence_coupling
 from ebica.affect.vad import VAD, AffectDynamics, apply_impulse, decay
 from ebica.core.events import Event, EventBus
-from ebica.core.state import EntityState
+from ebica.core.state import ConversationTurn, EntityState
 from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
+from ebica.llm.client import LLMClient, LLMError, LLMResult
+from ebica.llm.prompt_assembler import build_dialogue_messages
+from ebica.perception.appraisal import (
+    Appraisal,
+    AppraisalError,
+    appraisal_json_schema,
+    build_appraisal_messages,
+    neutral_appraisal,
+    parse_appraisal,
+)
+
+# CONSTANTE: intercambios recientes que entran al prompt (D1-24).
+RECENT_TURNS = 6
+# Esquema JSON que restringe la salida del appraisal (D1-19); se calcula una vez.
+APPRAISAL_SCHEMA = appraisal_json_schema()
 
 # CONSTANTE: intervalo del bucle rápido (§6.1, ≈1 Hz).
 TICK_SECONDS = 1.0
@@ -54,21 +79,26 @@ class Orchestrator:
         save_state: Callable[[EntityState], None],
         now: Callable[[], datetime] = _utc_now,
         tick_seconds: float = TICK_SECONDS,
+        llm: LLMClient | None = None,
     ) -> None:
         """
         Prepara la dinámica con los parámetros que derivan de los rasgos.
 
-        `save_state` persiste el estado (lo da el EntityManager); `now` y
-        `tick_seconds` se reemplazan en las pruebas.
+        `save_state` persiste el estado (lo da el EntityManager); `llm` es
+        necesario para los turnos; `now` y `tick_seconds` se reemplazan en las pruebas.
         """
         self.entity = entity
         self.bus = bus
         self.now = now
         self.tick_seconds = tick_seconds
+        self.llm = llm
         self._save_state = save_state
-        parameters = derive_parameters(entity.config.traits)
-        self.affect_dynamics = AffectDynamics.from_parameters(parameters)
-        self.drive_dynamics = DriveDynamics.from_parameters(parameters)
+        self.parameters = derive_parameters(entity.config.traits)
+        self.affect_dynamics = AffectDynamics.from_parameters(self.parameters)
+        self.drive_dynamics = DriveDynamics.from_parameters(self.parameters)
+        # Un turno a la vez: dos consolas escribiendo a la vez no deben
+        # intercalar sus appraisals. La cola de GPU (parte B) lo reemplaza.
+        self._turn_lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
         self._ticks = 0
         self._last_affect_report: VAD | None = None
@@ -194,7 +224,9 @@ class Orchestrator:
         """True si pasó el intervalo de reporte desde `last` (o si nunca se reportó)."""
         return last is None or (now - last).total_seconds() >= REPORT_INTERVAL_SECONDS
 
-    def _report_affect(self, now: datetime, source: str, extra: dict | None = None) -> Event:
+    def _report_affect(
+        self, now: datetime, source: str, extra: dict | None = None, cause_id: str | None = None
+    ) -> Event:
         """Emite `affect.updated` con el VAD actual y el reposo, para la consola."""
         affect = self.state.affect
         self._last_affect_report = affect
@@ -205,10 +237,144 @@ class Orchestrator:
             "source": source,
             **(extra or {}),
         }
-        return self.bus.emit(self.entity_id, "affect.updated", payload)
+        return self.bus.emit(self.entity_id, "affect.updated", payload, cause_id=cause_id)
 
     def _report_periodic(self, now: datetime) -> None:
         """Emite `drive.updated` y `tick` (el resumen muestreado del bucle rápido, §6.1)."""
         self._last_periodic_at = now
         self.bus.emit(self.entity_id, "drive.updated", dict(self.state.drives))
         self.bus.emit(self.entity_id, "tick", {"ticks": self._ticks})
+
+    # ------------------------------------------------------------ turno (CP5)
+
+    async def user_turn(self, text: str) -> AsyncIterator[str]:
+        """
+        Procesa un mensaje del usuario y entrega la respuesta fragmento a fragmento.
+
+        Etapas de §6.2 que existen en CP5: percepción → appraisal (con la regla
+        del sarcasmo) → impulsos afectivos y alivio de drives → prompt con el
+        estado en palabras y la conversación reciente → respuesta con la
+        temperatura del ánimo. Al terminar, guarda el intercambio y emite
+        `turn.completed` con el resumen para la consola. Cada evento se
+        encadena por `cause_id` con el que lo provocó.
+
+        Si quien consume deja de leer, cerrar este iterador cierra el streaming
+        del LLM (`llm.cancelled`) y el intercambio no se guarda.
+        """
+        if self.llm is None:
+            raise RuntimeError("El orquestador no tiene cliente LLM: no puede procesar turnos")
+        async with self._turn_lock:
+            started = time.perf_counter()
+            perception = self.bus.emit(self.entity_id, "perception.input", {"text": text, "source": "user"})
+
+            appraisal, corrections, appraisal_event = await self._appraise(text, perception.id)
+            appraisal_s = time.perf_counter() - started
+            affect_event = self.apply_appraisal(appraisal, corrections, cause_id=appraisal_event.id)
+
+            state = self.state
+            temperature = dialogue_temperature(state.affect)
+            messages = build_dialogue_messages(
+                self.entity.config, text, state.affect, state.drives, state.recent_turns
+            )
+            result = LLMResult()
+            stream = self.llm.stream(
+                messages, entity_id=self.entity_id, preset="dialogue",
+                cause_id=affect_event.id, temperature=temperature, result=result,
+            )
+            async with aclosing(stream) as pieces:
+                async for piece in pieces:
+                    yield piece
+
+            self._remember_turn(text, result.text)
+            self.bus.emit(
+                self.entity_id, "turn.completed",
+                {
+                    "appraisal": appraisal.model_dump(),
+                    "corrections": corrections,
+                    "affect_after": affect_event.payload,
+                    "temperature": temperature,
+                    "latency": {
+                        "appraisal_s": appraisal_s,
+                        "first_token_s": result.first_token_s,
+                        "response_s": result.total_s,
+                        "total_s": time.perf_counter() - started,
+                    },
+                },
+                cause_id=result.response_event_id,
+            )
+            self._save_state(state)
+
+    async def _appraise(self, text: str, cause_id: str) -> tuple[Appraisal, list[str], Event]:
+        """
+        Pide el appraisal al LLM (D1-19: salida restringida al esquema) y aplica
+        las reglas de coherencia (D1-20).
+
+        Si el LLM falla o la salida no cumple el esquema, emite
+        `appraisal.invalid` y sigue con un appraisal neutro: el turno no se rompe.
+        """
+        config = self.entity.config
+        profile = config.appraisal_profile or config.description
+        messages = build_appraisal_messages(config.name, profile, text)
+        try:
+            result = await self.llm.complete(
+                messages, entity_id=self.entity_id, preset="appraisal", cause_id=cause_id,
+                response_schema=APPRAISAL_SCHEMA,
+            )
+            appraisal = parse_appraisal(result.text)
+        except (LLMError, AppraisalError) as error:
+            event = self.bus.emit(
+                self.entity_id, "appraisal.invalid", {"error": str(error)}, cause_id=cause_id
+            )
+            return neutral_appraisal(), [], event
+        appraisal, corrections = apply_coherence_rules(appraisal)
+        event = self.bus.emit(
+            self.entity_id, "appraisal.completed",
+            {"appraisal": appraisal.model_dump(), "corrections": corrections},
+            cause_id=result.response_event_id,
+        )
+        return appraisal, corrections, event
+
+    def apply_appraisal(
+        self, appraisal: Appraisal, corrections: list[str] | None = None, cause_id: str | None = None
+    ) -> Event:
+        """
+        Aplica los efectos de un appraisal: impulso al VAD y alivio de drives (§6.2, etapa 3).
+
+        El alivio de los drives produce placer por el acople de CP4 (−Σ w·Δe),
+        que se suma al impulso. Emite `affect.updated` (`source: "appraisal"`,
+        con el desglose) y `drive.updated`, y devuelve el primero.
+        """
+        self.tick()
+        state = self.state
+        impulse = affect_impulse(appraisal, state.affect, self.parameters)
+        relief = drive_relief(appraisal)
+        before = state.drives
+        after = {name: max(0.0, level - relief[name]) for name, level in before.items()}
+        from_drives = valence_coupling(before, after)
+        state.drives = after
+        state.affect = apply_impulse(
+            state.affect, impulse.valence + from_drives, impulse.arousal, impulse.dominance
+        )
+        for name, direction in crossed_thresholds(before, after):
+            self.bus.emit(
+                self.entity_id, "drive.threshold_crossed",
+                {"drive": name, "direction": direction, "level": after[name], "awake": True},
+                cause_id=cause_id,
+            )
+        event = self._report_affect(
+            self.now(), "appraisal",
+            {
+                "impulse": impulse.as_dict(),
+                "drive_relief": relief,
+                "valence_from_drives": from_drives,
+                "corrections": corrections or [],
+            },
+            cause_id=cause_id,
+        )
+        self.bus.emit(self.entity_id, "drive.updated", dict(after), cause_id=event.id)
+        return event
+
+    def _remember_turn(self, user_text: str, entity_text: str) -> None:
+        """Guarda el intercambio y conserva solo los últimos `RECENT_TURNS` (D1-24)."""
+        turns = [*self.state.recent_turns, ConversationTurn(user=user_text, entity=entity_text, ts=self.now())]
+        self.state.recent_turns = turns[-RECENT_TURNS:]
