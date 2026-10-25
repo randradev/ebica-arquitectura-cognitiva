@@ -1,6 +1,6 @@
 # Fase 0 — Infraestructura · PLAN
 
-> Estado: **aprobado y ejecutado (CP0–CP5 completados el 2026-10-24).** Cierre formal pendiente del usuario. El detalle de lo ocurrido está en `REPORTE.md`; la sección 2 describe el estado *inicial*.
+> Estado: **completado y cerrado (2026-10-24).** El detalle de lo ocurrido está en `REPORTE.md`; la sección 2 describe el estado *inicial*.
 > Fuente: `docs/EBICA_documento_base.md` §4.2, §5.1, §5.13, §7, §8, §9, §10, §11 (Fase 0), §14.
 
 ---
@@ -150,4 +150,4 @@ entrada en `REPORTE.md` y una pausa.
 - [x] Decisiones D0-1 a D0-8 registradas con lo que se eligió y por qué.
 - [x] Ningún dato de entidad (estado, eventos) queda versionado.
 
-> Marcados el 2026-10-24 tras CP5; la evidencia está en `REPORTE.md`. El cierre formal de la fase queda a decisión del usuario.
+> Marcados el 2026-10-24 tras CP5; la evidencia y el cierre están en `REPORTE.md`.

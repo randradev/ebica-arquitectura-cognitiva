@@ -24,8 +24,12 @@ import httpx
 from ebica.core.events import EventBus
 
 # CONSTANTES: valores por defecto si no hay variables de entorno (.env.example).
-DEFAULT_BASE_URL = "http://localhost:11434/v1"
-DEFAULT_MODEL = "llama3.1"
+# 127.0.0.1 y no localhost: en Windows, httpx tarda ~2 s en cada conexión nueva a
+# localhost porque prueba IPv6 primero (medido en Fase 1, CP1). Como el pool
+# cierra las conexiones inactivas a los 5 s, ese costo se pagaría en casi cada turno.
+DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
+# Modelo derivado de llama3.1 con contexto de 8192 tokens (ollama/ebica-llama3.1.Modelfile).
+DEFAULT_MODEL = "ebica-llama3.1"
 
 # CONSTANTE: tiempos de espera de la conexión HTTP.
 # `read` es amplio porque la primera llamada carga el modelo en la GPU
@@ -131,14 +135,16 @@ class LLMClient:
         entity_id: str,
         preset: str = "dialogue",
         cause_id: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """
         Genera una respuesta y la entrega fragmento a fragmento.
 
         `messages` usa el formato de OpenAI (`{"role": ..., "content": ...}`).
-        Para cancelar, cancela la tarea que recorre el iterador.
+        `response_schema` (opcional) es un esquema JSON que restringe la salida
+        (ver `_build_body`). Para cancelar, cancela la tarea que recorre el iterador.
         """
-        return self._generate(messages, entity_id, preset, cause_id, LLMResult())
+        return self._generate(messages, entity_id, preset, cause_id, LLMResult(), response_schema)
 
     async def complete(
         self,
@@ -147,15 +153,27 @@ class LLMClient:
         entity_id: str,
         preset: str = "dialogue",
         cause_id: str | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> LLMResult:
         """Genera una respuesta completa (usa streaming por dentro) y devuelve el resultado."""
         result = LLMResult()
-        async for _ in self._generate(messages, entity_id, preset, cause_id, result):
+        async for _ in self._generate(messages, entity_id, preset, cause_id, result, response_schema):
             pass
         return result
 
-    def _build_body(self, messages: list[dict[str, str]], sampling: SamplingPreset) -> dict[str, Any]:
-        """Arma el cuerpo de la petición `/chat/completions` según el preset."""
+    def _build_body(
+        self,
+        messages: list[dict[str, str]],
+        sampling: SamplingPreset,
+        response_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Arma el cuerpo de la petición `/chat/completions` según el preset.
+
+        Con `response_schema`, el servidor restringe la generación a ese esquema
+        (`json_schema`): solo puede producir las claves y tipos declarados.
+        Sin él, un preset con `json_mode` pide solo "un objeto JSON cualquiera".
+        """
         body: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -165,7 +183,12 @@ class LLMClient:
             # Pide el conteo de tokens en el último fragmento del streaming.
             "stream_options": {"include_usage": True},
         }
-        if sampling.json_mode:
+        if response_schema is not None:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "strict": True, "schema": response_schema},
+            }
+        elif sampling.json_mode:
             body["response_format"] = {"type": "json_object"}
         return body
 
@@ -176,6 +199,7 @@ class LLMClient:
         preset: str,
         cause_id: str | None,
         result: LLMResult,
+        response_schema: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """
         Envía la petición, recorre el streaming y emite los eventos.
@@ -184,7 +208,7 @@ class LLMClient:
         """
         if preset not in PRESETS:
             raise ValueError(f"Preset desconocido: '{preset}'. Disponibles: {sorted(PRESETS)}")
-        body = self._build_body(messages, PRESETS[preset])
+        body = self._build_body(messages, PRESETS[preset], response_schema)
 
         # El evento lleva el cuerpo completo: es exactamente lo que recibe el
         # modelo, para poder verlo en la consola (§8.3, "PROMPT EXACTO").

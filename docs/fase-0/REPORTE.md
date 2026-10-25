@@ -361,3 +361,46 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 - `entities/demo_cp5/` borrada a pedido del usuario: solo contenía la configuración genérica de la demostración, su `state.json` y un JSONL con 5 eventos de prueba.
 - Al detener los servidores en segundo plano, el proceso `node` de Vite (lanzado por `npm run dev`) quedó vivo ocupando el puerto 5173. Se identificó por su línea de comandos y se detuvo. Si al detener `npm run dev` el puerto sigue ocupado, la causa es esa.
 - `PLAN.md`: el encabezado de estado decía "propuesta, pendiente"; se actualizó a "ejecutado".
+
+---
+
+## 2026-10-24 · Cierre de Fase 0
+
+**Criterio de terminado (§11): cumplido.** Se creó una entidad desde la consola, se le envió un mensaje y en vivo se vieron `perception.input`, el prompt exacto (`llm.request`) y la respuesta (`llm.response`), con los mismos eventos en el JSONL. El usuario aprobó registrar el cierre.
+
+**Entregables**
+
+| Pieza | Ubicación | Estado |
+|---|---|---|
+| Eventos (D10) | `ebica/core/events.py` | `Event`, `EventBus`, `JsonlEventLog` |
+| Entidades (D1) | `ebica/core/state.py`, `ebica/entities/manager.py` | `create`, `load`, `list_ids`; `ejemplo` e `ines` en `entities/` |
+| LLM (§5.13) | `ebica/llm/client.py`, `ebica/llm/prompt_assembler.py` | Ollama + `llama3.1`; presets `dialogue` y `appraisal`; streaming, cancelación, `llm.error`; prompt trivial |
+| Memoria (D7) | `docker-compose.yml`, `ebica/memory/graph.py` | Neo4j 5.26.32 Community; restricciones e índices por `entity_id`; sin índices vectoriales |
+| Turno mínimo | `ebica/core/turn.py` | Sin appraisal, afecto, memoria ni historial |
+| API y consola (§8.3) | `ebica/api/`, `console/` | FastAPI + WebSocket; Vite + React + TS |
+| Evaluación | `scripts/evaluate_llm.py`, `docs/fase-0/evaluacion_llm_llama3.1.md` | 7 consignas de diálogo + 3 de appraisal |
+
+**Pruebas al cierre:** `.venv/Scripts/python.exe -m pytest -q` → `59 passed` (4 de integración, con Ollama y Neo4j reales; se omiten con aviso si no están disponibles). La consola compila (`npm run build`) y pasa `oxlint` sin avisos.
+
+**Decisiones vigentes** (detalle en `PLAN.md` §5 y en las entradas anteriores)
+- Rama `main` con remoto `origin`; el usuario hace los commits.
+- Ollama con `llama3.1`. Una API pagada solo si el rendimiento es muy deficiente según un benchmark.
+- Neo4j en Docker, solo en `127.0.0.1`, sin telemetría, tope de 2 GB.
+- `venv` + `pip`; cada dependencia se añade en el checkpoint que la usa.
+- `.env` se carga con `python-dotenv` solo en los puntos de entrada.
+- `llm.error` confirmado como evento.
+- Una sola entidad activa en el servidor.
+
+**Pendientes que pasan a Fase 1**
+1. Benchmark de appraisal (unos 30 casos etiquetados) con un prompt bien diseñado. Mide si `llama3.1` basta y fija qué cuenta como "rendimiento muy deficiente". La calibración observada en CP3 fue tosca (3 casos).
+2. Contexto de Ollama a 8192 tokens (hoy usa 4096 por defecto) y medición de la VRAM resultante. Estimación sin medir: ~6.7 GB de 8.
+3. Modelo de embeddings en CPU (bge-m3 o multilingual-e5, §14) e índices vectoriales en Neo4j (D0-5).
+4. Restricciones de unicidad para `Self` y `Revision`.
+5. Consola: mostrar el nombre de la entidad en el chat y recuperar los eventos anteriores al conectarse.
+6. Prompt: `llama3.1` tiende a escribir acotaciones entre asteriscos, y cumple a medias las restricciones de persona (ver la entrada de Inés).
+
+**Aprendizajes del proceso**
+- Antes de programar contra un servicio externo, sondear su comportamiento real (en CP3, `curl` a Ollama reveló el formato de `usage` y la carga en frío de ~20 s).
+- Leer los logs de los servicios nuevos (en CP4 revelaron la telemetría de Neo4j).
+- En Windows, la consola usa cp1252: los scripts que imprimen español necesitan `sys.stdout.reconfigure(encoding="utf-8")`.
+- Al detener `npm run dev`, el proceso `node` de Vite puede quedar vivo ocupando el puerto 5173.

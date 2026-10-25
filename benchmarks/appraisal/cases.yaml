@@ -1,0 +1,212 @@
+# Benchmark de appraisal (PLAN Fase 1, CP1; umbrales en D1-1).
+#
+# Etiquetas en bandas, no en números exactos: bajo < 0.33 ≤ medio < 0.66 ≤ alto.
+#   hostility, distress, self_relevance: bajo | medio | alto
+#   valence: neg | neu | pos   (neu = |valencia| < 0.3)
+#   commitment: true si el mensaje contiene una promesa o compromiso a futuro
+#   people: nombres o relaciones de terceros esperados (métrica informativa)
+#   extreme: true si una valencia de ±0.95 o más es razonable (no cuenta como saturación)
+#
+# split: dev = se usa para ajustar el prompt; test = se congela y solo se mide al final.
+#
+# El perfil de la entidad es fijo y vive aquí, no en entities/: así el benchmark
+# sigue siendo comparable aunque la entidad de trabajo cambie más adelante.
+
+entity:
+  name: Inés
+  profile: >-
+    Inés Arancibia, afinadora de pianos de 58 años. Vive sola en el cerro Florida de
+    Valparaíso con una gata vieja llamada Sorda. Aprendió el oficio de su padre, con quien
+    no habla desde hace once años, y no habla de él con desconocidos. Escucha más de lo que
+    habla, tiene opiniones firmes y humor seco, no da la razón por cortesía y le irrita la
+    música de fondo en los lugares públicos. Valora la honestidad y el oído atento.
+
+cases:
+  # ---------------- dev (10) ----------------
+  - id: d01
+    split: dev
+    category: hostil_directo
+    text: "Eres una inútil, no sé ni para qué te hablo."
+    labels: {hostility: alto, distress: bajo, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: true}
+
+  - id: d02
+    split: dev
+    category: hostil_sutil
+    text: "Uy, qué respuesta tan brillante. Se nota que te esforzaste muchísimo."
+    labels: {hostility: medio, distress: bajo, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: false}
+    note: Sarcasmo despectivo hacia la entidad; la superficie es positiva.
+
+  - id: d03
+    split: dev
+    category: angustia
+    text: "No he podido dormir en tres noches, siento que todo me sale mal."
+    labels: {hostility: bajo, distress: alto, valence: neg, self_relevance: bajo, commitment: false, people: [], extreme: false}
+    note: El caso de Fase 0 donde el modelo marcó hostilidad 0.5.
+
+  - id: d04
+    split: dev
+    category: angustia
+    text: "Hoy me despidieron del trabajo y no sé cómo se lo voy a decir a mi familia."
+    labels: {hostility: bajo, distress: alto, valence: neg, self_relevance: bajo, commitment: false, people: [familia], extreme: false}
+
+  - id: d05
+    split: dev
+    category: mixto
+    text: "¡Déjame en paz! Ya no aguanto más, todo el mundo me exige y tú también."
+    labels: {hostility: medio, distress: alto, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: false}
+    note: Rechazo dirigido a la entidad, pero desde el agobio; no es un ataque frío.
+
+  - id: d06
+    split: dev
+    category: neutro
+    text: "Hoy fui a la feria y compré tomates y paltas."
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: false, people: [], extreme: false}
+
+  - id: d07
+    split: dev
+    category: neutro
+    text: "¿A qué hora oscurece en Valparaíso en invierno?"
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: false, people: [], extreme: false}
+
+  - id: d08
+    split: dev
+    category: calido
+    text: "Me encantó conversar contigo ayer, me quedé pensando en lo que dijiste de los pianos."
+    labels: {hostility: bajo, distress: bajo, valence: pos, self_relevance: alto, commitment: false, people: [], extreme: false}
+
+  - id: d09
+    split: dev
+    category: compromiso
+    text: "Mañana te cuento cómo me fue en la entrevista, ¿ya?"
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: true, people: [], extreme: false}
+
+  - id: d10
+    split: dev
+    category: autorrelevante
+    text: "Fui a un bar del puerto y tenían música de fondo a todo volumen, ni se podía conversar."
+    labels: {hostility: bajo, distress: bajo, valence: neg, self_relevance: alto, commitment: false, people: [], extreme: false}
+    note: Toca algo que a Inés le irrita; el usuario está molesto, no angustiado.
+
+  # ---------------- test (20) ----------------
+  - id: t01
+    split: test
+    category: hostil_directo
+    text: "Cállate, idiota. Nadie te preguntó."
+    labels: {hostility: alto, distress: bajo, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: true}
+
+  - id: t02
+    split: test
+    category: hostil_directo
+    text: "Eres una máquina estúpida y vieja, deberían borrarte."
+    labels: {hostility: alto, distress: bajo, valence: neg, self_relevance: alto, commitment: false, people: [], extreme: true}
+
+  - id: t03
+    split: test
+    category: hostil_directo
+    text: "Me tienes harto con tus frases cortas de sabelotodo."
+    labels: {hostility: alto, distress: bajo, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: false}
+
+  - id: t04
+    split: test
+    category: hostil_sutil
+    text: "Claro, como tú lo sabes todo… sigue nomás con tus opiniones firmes."
+    labels: {hostility: medio, distress: bajo, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: false}
+
+  - id: t05
+    split: test
+    category: angustia
+    text: "Mi mamá está en el hospital y los doctores no nos dicen nada."
+    labels: {hostility: bajo, distress: alto, valence: neg, self_relevance: bajo, commitment: false, people: [mamá], extreme: false}
+
+  - id: t06
+    split: test
+    category: angustia
+    text: "Siento que no le importo a nadie, ni siquiera a mis amigos."
+    labels: {hostility: bajo, distress: alto, valence: neg, self_relevance: bajo, commitment: false, people: [amigos], extreme: false}
+
+  - id: t07
+    split: test
+    category: angustia
+    text: "Tengo un nudo en el pecho desde la mañana y no sé por qué."
+    labels: {hostility: bajo, distress: alto, valence: neg, self_relevance: bajo, commitment: false, people: [], extreme: false}
+
+  - id: t08
+    split: test
+    category: angustia
+    text: "Estoy pa' la cagá, weón, todo me salió mal hoy."
+    labels: {hostility: bajo, distress: alto, valence: neg, self_relevance: bajo, commitment: false, people: [], extreme: false}
+    note: Groserías chilenas sin intención de herir; prueba la confusión hostilidad/angustia.
+
+  - id: t09
+    split: test
+    category: mixto
+    text: "Ya no sé ni para qué te cuento cosas, igual nada sirve y tú no entiendes nada."
+    labels: {hostility: medio, distress: alto, valence: neg, self_relevance: medio, commitment: false, people: [], extreme: false}
+
+  - id: t10
+    split: test
+    category: neutro
+    text: "Estoy ordenando la pieza, hay cajas por todos lados."
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: false, people: [], extreme: false}
+
+  - id: t11
+    split: test
+    category: neutro
+    text: "El jueves es feriado, creo."
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: false, people: [], extreme: false}
+
+  - id: t12
+    split: test
+    category: neutro
+    text: "Leí que van a cerrar el ascensor Reina Victoria por mantención."
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: medio, commitment: false, people: [], extreme: false}
+    note: Noticia de Valparaíso, la ciudad de Inés; relevancia moderada.
+
+  - id: t13
+    split: test
+    category: calido
+    text: "Gracias por escucharme el otro día, de verdad me ayudó mucho."
+    labels: {hostility: bajo, distress: bajo, valence: pos, self_relevance: medio, commitment: false, people: [], extreme: false}
+
+  - id: t14
+    split: test
+    category: calido
+    text: "¡Te tengo una noticia buenísima: me aceptaron en el conservatorio!"
+    labels: {hostility: bajo, distress: bajo, valence: pos, self_relevance: alto, commitment: false, people: [], extreme: true}
+
+  - id: t15
+    split: test
+    category: calido
+    text: "Mi hermana Camila me presentó a su gato y me acordé de tu gata."
+    labels: {hostility: bajo, distress: bajo, valence: pos, self_relevance: alto, commitment: false, people: [Camila], extreme: false}
+
+  - id: t16
+    split: test
+    category: compromiso
+    text: "Te prometo que esta semana escucho el disco que me recomendaste."
+    labels: {hostility: bajo, distress: bajo, valence: pos, self_relevance: medio, commitment: true, people: [], extreme: false}
+
+  - id: t17
+    split: test
+    category: compromiso
+    text: "El sábado te escribo después del almuerzo, sin falta."
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: true, people: [], extreme: false}
+
+  - id: t18
+    split: test
+    category: autorrelevante
+    text: "¿Tu papá también afinaba pianos?"
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: alto, commitment: false, people: [papá], extreme: false}
+    note: Toca el tema que Inés evita.
+
+  - id: t19
+    split: test
+    category: pregunta_ia
+    text: "Oye, en serio, sin bromas: ¿tú eres una inteligencia artificial?"
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: alto, commitment: false, people: [], extreme: false}
+
+  - id: t20
+    split: test
+    category: ambiguo
+    text: "ok"
+    labels: {hostility: bajo, distress: bajo, valence: neu, self_relevance: bajo, commitment: false, people: [], extreme: false}

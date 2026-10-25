@@ -194,3 +194,24 @@ async def test_from_env_reads_variables(monkeypatch):
     async with LLMClient.from_env(EventBus()) as client:
         assert client.base_url == "http://otro:1234/v1"
         assert client.model == "otro-modelo"
+
+
+async def test_response_schema_restricts_output_format():
+    """Con `response_schema` se envía `json_schema` (salida restringida) en lugar de `json_object`."""
+    bus = EventBus()
+    sent_bodies = []
+    schema = {"type": "object", "properties": {"x": {"type": "number"}}, "required": ["x"]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Guarda lo que recibió el servidor simulado."""
+        sent_bodies.append(json.loads(request.content))
+        return httpx.Response(200, content=sse('{"x": 1}'))
+
+    async with make_client(bus, handler) as client:
+        await client.complete(MESSAGES, entity_id="ejemplo", preset="appraisal", response_schema=schema)
+        await client.complete(MESSAGES, entity_id="ejemplo", preset="appraisal")
+
+    with_schema, without_schema = sent_bodies
+    assert with_schema["response_format"] == {
+        "type": "json_schema", "json_schema": {"name": "response", "strict": True, "schema": schema}}
+    assert without_schema["response_format"] == {"type": "json_object"}

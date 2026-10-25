@@ -1,0 +1,14 @@
+# Modelo LLM del motor EBICA (PLAN Fase 1, D1-2).
+# Deriva de llama3.1 (8B, id 46e0c10c039e en Ollama) sin descargar nada: reutiliza
+# sus capas y solo fija parámetros.
+#
+# Crear o actualizar (desde la raíz del repositorio):
+#     ollama create ebica-llama3.1 -f ollama/ebica-llama3.1.Modelfile
+# y usar EBICA_LLM_MODEL=ebica-llama3.1 en .env.
+
+FROM llama3.1:latest
+
+# Contexto de 8192 tokens. La API compatible con OpenAI (/v1) no permite fijarlo
+# por petición, y Ollama usa 4096 por defecto (verificado con `ollama ps`).
+# La WorkingMemory y el presupuesto de VRAM de §9 suponen 8k.
+PARAMETER num_ctx 8192
