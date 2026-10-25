@@ -101,7 +101,10 @@ def affect_impulse(appraisal: Appraisal, current: VAD, parameters: DerivedParame
 
     - Valencia: 0,3 · g · goal_congruence, con g = g_neg si el mensaje va en
       contra y g_pos si va a favor (N y E deciden cuánto pesa cada lado), más
-      el lazo «como si»: 0,5 · π · (valencia ajena − propia), con π por A.
+      el lazo «como si»: 0,5 · π · (valencia ajena − propia) · (1 − hostilidad),
+      con π por A. El último factor (D1-27) evita contagiarse del enojo de
+      quien ataca: la empatía baja hacia quien se percibe como antagonista
+      (Singer et al., 2006). La tristeza de alguien que sufre sí contagia.
     - Alerta: sube con la hostilidad y con la angustia ajena.
     - Dominancia: baja con la hostilidad.
     """
@@ -109,7 +112,9 @@ def affect_impulse(appraisal: Appraisal, current: VAD, parameters: DerivedParame
     gain = parameters.g_neg if congruence < 0 else parameters.g_pos
     from_goals = APPRAISAL_VALENCE_SCALE * gain * congruence
     from_empathy = (
-        EMPATHY_SCALE * parameters.pi_empathy * (appraisal.user_emotion.valence - current.valence)
+        EMPATHY_SCALE * parameters.pi_empathy
+        * (appraisal.user_emotion.valence - current.valence)
+        * (1.0 - appraisal.hostility)
     )
     return AffectImpulse(
         valence=from_goals + from_empathy,

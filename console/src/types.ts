@@ -27,6 +27,12 @@ export interface EntityList {
   active_name: string | null
 }
 
+/** Respuesta de `GET /api/conversation`: los intercambios guardados de la entidad activa. */
+export interface ConversationResponse {
+  entity_id: string | null
+  turns: { user: string; entity: string; ts: string }[]
+}
+
 /** URL absoluta de un WebSocket del backend, pasando por el proxy de Vite. */
 export function wsUrl(path: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'

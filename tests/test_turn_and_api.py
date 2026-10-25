@@ -229,3 +229,19 @@ def test_switching_entity_stops_the_previous_loop_and_saves(client, tmp_path):
     assert saved["last_tick_at"] is not None
     engine = client.app.state.engine
     assert engine.active.config.id == "boris" and engine.orchestrator.entity_id == "boris"
+
+
+def test_conversation_endpoint_returns_saved_turns(client):
+    """Hallazgo 4 de CP5: la consola puede recuperar la conversación guardada de la entidad activa."""
+    assert client.get("/api/conversation").json() == {"entity_id": None, "turns": []}
+    client.post("/api/entities", json=CONFIG)
+    client.post("/api/entities/aurora/load")
+    with client.websocket_connect("/ws/chat") as chat:
+        chat.send_json({"text": "hola"})
+        while chat.receive_json()["type"] != "done":
+            pass
+
+    data = client.get("/api/conversation").json()
+
+    assert data["entity_id"] == "aurora"
+    assert [(turn["user"], turn["entity"]) for turn in data["turns"]] == [("hola", "Hola")]

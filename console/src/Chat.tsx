@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import { type ChatReply, wsUrl } from './types'
+import { type ChatReply, type ConversationResponse, wsUrl } from './types'
 
 interface Line {
   author: 'usuario' | 'entidad' | 'sistema'
@@ -15,6 +15,26 @@ export function Chat({ activeId, activeName }: { activeId: string | null; active
   const [draft, setDraft] = useState('')
   const [waiting, setWaiting] = useState(false)
   const socketRef = useRef<WebSocket | null>(null)
+
+  // Al abrir la consola o cambiar de entidad, muestra la conversación guardada
+  // de la entidad activa (`/api/conversation`) en vez de un chat vacío o el de otra.
+  useEffect(() => {
+    if (!activeId) return
+    let cancelled = false
+    fetch('/api/conversation')
+      .then((response) => response.json() as Promise<ConversationResponse>)
+      .then((data) => {
+        if (cancelled || data.entity_id !== activeId) return
+        setLines(data.turns.flatMap((turn) => [
+          { author: 'usuario' as const, text: turn.user },
+          { author: 'entidad' as const, text: turn.entity },
+        ]))
+      })
+      .catch(() => setLines([{ author: 'sistema', text: 'No se pudo cargar la conversación guardada' }]))
+    return () => {
+      cancelled = true
+    }
+  }, [activeId])
 
   useEffect(() => {
     const socket = new WebSocket(wsUrl('/ws/chat'))
@@ -56,7 +76,8 @@ export function Chat({ activeId, activeName }: { activeId: string | null; active
   return (
     <section className="chat">
       <div className="lines">
-        {lines.map((line, index) => (
+        {/* Sin entidad activa no hay conversación que mostrar. */}
+        {(activeId ? lines : []).map((line, index) => (
           <p key={index} className={`line ${line.author}`}>
             <strong>{line.author === 'entidad' ? activeName ?? 'entidad' : line.author}:</strong>{' '}
             {line.text || (waiting && index === lines.length - 1 ? '…' : '')}

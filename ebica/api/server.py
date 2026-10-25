@@ -134,6 +134,21 @@ def create_app(
         await engine.activate(entity)
         return entity_summary(engine.active)
 
+    @app.get("/api/conversation")
+    async def conversation() -> dict:
+        """
+        Los últimos intercambios guardados de la entidad activa (D1-24), para que
+        la consola muestre la conversación al recargar o al cambiar de entidad.
+        Sin entidad cargada devuelve una lista vacía.
+        """
+        if engine.active is None:
+            return {"entity_id": None, "turns": []}
+        turns = engine.active.state.recent_turns
+        return {
+            "entity_id": engine.active.config.id,
+            "turns": [turn.model_dump(mode="json") for turn in turns],
+        }
+
     @app.post("/api/affect/impulse")
     async def inject_affect(impulse: Impulse) -> dict:
         """

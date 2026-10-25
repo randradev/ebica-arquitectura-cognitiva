@@ -65,6 +65,15 @@ def test_empathy_loop_pulls_towards_the_other_mood():
     assert impulse.valence_from_goals == 0.0
 
 
+def test_no_empathic_contagion_from_an_attacker():
+    """D1-27: la empatía se escala por (1 − hostilidad); con hostilidad 0,9 queda en un 10 %."""
+    parameters = derive_parameters(CALISTO)
+    sad = affect_impulse(appraisal(valence=-0.8), VAD(valence=0.0), parameters)
+    angry = affect_impulse(appraisal(valence=-0.8, hostility=0.9), VAD(valence=0.0), parameters)
+
+    assert angry.valence_from_empathy == pytest.approx(sad.valence_from_empathy * 0.1)
+
+
 def test_positive_goal_uses_g_pos():
     """Lo que favorece sus metas usa g_pos (E): 0,3 · 1,425 · 0,5."""
     impulse = affect_impulse(appraisal(goal_congruence=0.5), VAD(), derive_parameters(CALISTO))

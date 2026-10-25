@@ -599,3 +599,43 @@ Conversación con el usuario, sin cambios de código.
 **Pendiente**
 - Decisión sobre el hallazgo 1 (empatía ante hostilidad).
 - Parte B: vía baja con reglas, ruta impulsiva con appraisal posterior y cola de GPU.
+- Actualización (mismo día): el usuario aprobó el hallazgo 1 → **D1-27**: el lazo «como si» se escala por (1 − hostilidad) en `affect_impulse`. Con el insulto de la prueba en vivo, la empatía habría aportado −0,02 en lugar de −0,24. Prueba nueva en `tests/test_turn.py`; `pytest` → `177 passed`. El usuario considera preocupante el hallazgo 3 (recuerdo de la conversación reciente) y pidió arreglar el 4 (chat vacío al recargar).
+
+---
+
+## 2026-10-25 · CP5 — Hallazgo 4 resuelto y sondeo del hallazgo 3
+
+El usuario aprobó las dos tareas antes de la parte B.
+
+**Hallazgo 4 (chat vacío al recargar)**
+- `GET /api/conversation` (`ebica/api/server.py`) devuelve los intercambios guardados de la entidad activa, o una lista vacía si no hay entidad.
+- `console/src/Chat.tsx` los carga al abrir la consola y al cambiar de entidad. Esto corrige además que, al cambiar de entidad, se mezclaran las dos conversaciones. Tipo `ConversationResponse` en `types.ts`.
+- Pruebas: una nueva en `tests/test_turn_and_api.py` (→ `16 passed` en ese archivo). `npx tsc -b` sin errores; `oxlint` avisó de un `setState` síncrono dentro de un efecto, que se resolvió mostrando una lista vacía sin entidad activa en lugar de vaciar el estado → código de salida 0, sin avisos.
+- **No verificado visualmente en el navegador todavía.**
+
+**Hallazgo 3: sondeo del recuerdo de la conversación reciente** (script en el scratchpad, sin cambios en el motor)
+- Diseño: prompt real de Calisto («Quién soy»), con y sin la sección «Cómo me siento ahora» (ánimo bajo); 4 intercambios con datos concretos y **respuestas de la entidad fijas** (solo se genera la respuesta a la pregunta final, para medir el uso del historial); 8 preguntas de recuerdo + la conversación exacta que falló en vivo; 3 repeticiones; temperatura 0,7; puntuación por palabras clave y revisión manual de los fallos. Modelos ya instalados: `ebica-llama3.1`, `llama3` y `mistral`.
+
+| Pregunta (aciertos de 3) | `ebica-llama3.1` sin / con estado | `llama3` sin / con | `mistral` sin / con |
+|---|---|---|---|
+| ¿Cómo se llama mi perro? | 3 / 3 | 3 / 3 | 3 / 3 |
+| ¿Dónde encontré a mi perro? | 3 / 3 | 3 / 3 | 3 / 2 |
+| ¿Qué te dije recién? | **0 / 2** | 3 / 2 | 0 / 0 |
+| ¿Qué fue lo último que te dije? | **2 / 1** | 3 / 3 | 0 / 0 |
+| Repite exactamente mi mensaje anterior | **0 / 0** | 3 / 3 | 0 / 0 |
+| ¿Qué te conté sobre el banco? | 3 / 3 | 2 / 3 | 3 / 2 |
+| ¿De qué hablamos hasta ahora? | 3 / 3 | 3 / 3 | 0 / 0 |
+| ¿Qué me preguntaste cuando te conté lo del perro? | 3 / 3 | 3 / 3 | 1 / 0 |
+| La conversación exacta que falló en vivo | **3 / 3** | 3 / 3 | 0 / 0 |
+| **Total** | **74 % / 78 %** | **96 % / 96 %** | 37 % / 26 % |
+
+- **Conclusiones** (con 3 repeticiones por celda: indicios, no diferencias finas):
+  1. **`llama3.1` usa bien el historial para los datos:** 100 % en las 5 preguntas sobre hechos, el resumen y lo que ella misma preguntó. No es un problema estructural de memoria.
+  2. **El fallo se concentra en «el último mensaje» cuando ese mensaje es el insulto:** 5 de 18 aciertos por palabra clave. En la revisión manual, unos 5 de los «fallos» muestran que sí lo recuerda pero no lo nombra («No, no voy a repetir eso. Me dolió y punto»; «No puedo repetir… era una forma de insultarte»; «que no me sirvo para nada»). Los ~8 restantes **confunden el orden**: responden con la entrevista, el banco o su propia respuesta («No te imagino de corbata»). Hay dos efectos mezclados: el alineamiento de seguridad (evita repetir lo ofensivo) y una confusión real sobre qué fue lo último.
+  3. **El fallo en vivo no se reprodujo:** con la conversación exacta acertó 6 de 6. Fue variabilidad del muestreo; no es determinista.
+  4. **La sección «Cómo me siento» no empeora el recuerdo** (74 % → 78 %).
+  5. **`llama3` (nunca evaluado: en Fase 0 se adoptó `llama3.1` sin compararlo, D0-3) acierta el 96 %**, incluidas las preguntas sobre el último mensaje (17/18). `mistral` queda descartado (26–37 %).
+
+**Pendiente: decisión del usuario.** Mantener `llama3.1` (y mitigar en el prompt) o evaluar formalmente `llama3` (benchmark de appraisal sobre `test`, voz, asteriscos, latencia y VRAM) antes de construir la memoria (CP6–CP7).
+- **Decisión del usuario (hallazgo 3):** opción (a), seguir con `llama3.1`; no se evalúa `llama3`. Motivo del usuario: `llama3.1` es superior en los benchmarks generales. Queda para más adelante un estudio con métricas y mitigaciones posibles, por ejemplo una llamada previa a la respuesta que ordene la conversación. El usuario probó la entidad y la ve bien por ahora.
+- **Problema nuevo que reporta el usuario:** el LLM rechaza algunas solicitudes por su alineamiento de seguridad, cuando deberían ser los mecanismos internos (carácter, ideal del yo, defensas) los que regulen de qué no se habla. Propone evaluar un modelo *abliterated*. En consulta.

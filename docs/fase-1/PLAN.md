@@ -168,6 +168,7 @@ todo lo que producen los checkpoints anteriores.
 | D1-24 | **Confirmada** (2026-10-25) | Conversación reciente: 6 intercambios literales en el prompt, persistidos en `state.json`. |
 | D1-25 | **Confirmada** (2026-10-25) | Temperatura del diálogo = 0,7 + 0,1·valencia − 0,15·max(0, alerta − 0,6), entre 0,5 y 0,85. |
 | D1-26 | **Confirmada** (2026-10-25) | El embedding del mensaje pasa a CP6, donde tiene su primer consumidor (guardar episodios). |
+| D1-27 | **Confirmada** (2026-10-25) | El lazo «como si» se escala por (1 − hostilidad): la entidad no se contagia del enojo de quien la ataca, pero sí de la tristeza de quien sufre (Singer et al., 2006). Desviación menor de §6.2, que aplica la empatía a todo mensaje; surgió de la prueba en vivo de CP5 parte A. |
 | D1-11 | **Confirmada** (2026-10-25) | Búsqueda vectorial con sobremuestreo y filtro posterior por `entity_id`: Neo4j 5.26 busca en todo el índice antes de poder filtrar. Se piden más vecinos que `k` (con un tope) y se descartan los de otras entidades. |
 
 **Ajustes de CP2 (2026-10-25)**
