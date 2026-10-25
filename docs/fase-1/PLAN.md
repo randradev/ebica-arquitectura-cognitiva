@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3 completado** (entidad de trabajo: Calisto, D1-5 revisada). CP4 no iniciado.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3 y CP4 completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-18. CP5 no iniciado.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -156,6 +156,10 @@ todo lo que producen los checkpoints anteriores.
 | D1-12 | **Confirmada** (2026-10-25) | La variante experimental se define con `base: calisto` y solo los campos que cambian (N): una sola fuente de verdad para la biografía. No es clonación (Fase 2): no copia memoria ni estado. |
 | D1-13 | **Confirmada** (2026-10-25) | Los rasgos **no** generan texto en el prompt: actúan a través de la dinámica (CB5T: rasgo → parámetro → estado → conducta). En palabras van la voz y el ideal del yo (autoimagen, §5.2 b–c) y, desde CP9, el estado. Así la diferencia entre las variantes de N es solo causal. A revisar en Fase 2: la voz escrita a mano no sigue la deriva de rasgos. |
 | D1-14 | **Confirmada** (2026-10-25) | `entities/ines/config.yaml` se conserva sin cambios; carga con rasgos neutros. |
+| D1-15 | **Confirmada** (2026-10-25) | Vidas medias que §5.2 no define, como constantes fijas (calibrables): valencia positiva 20 min (= `h_neg` con N = 0, así lo negativo nunca dura menos), alerta 10 min, dominancia 30 min. La valencia negativa usa `h_neg`. |
+| D1-16 | **Confirmada** (2026-10-25) | Drives de Fase 1: `social` de 0 a 1 en 12 h × `(0.5 + E)`; `novelty` de 0 a 1 en 24 h; `rest` de 0 a 1 en 16 h despierta y, descargada, se recupera con una vida media de 2 h (sustituto del sueño, D1-7). Acople `Δvalence = −Σ w·Δe` con `w` = 0,3 / 0,15 / 0,2. Umbral de `drive.threshold_crossed`: 0,7. Inicial: 0,2 / 0,2 / 0. En CP4 nada los satisface (CP5). |
+| D1-17 | **Confirmada** (2026-10-25) | El estado se actualiza cada tick (~1 s) en memoria; se muestrea solo el reporte. `affect.updated` sale al cambiar ≥ 0,01 o cada 60 s; `drive.updated` y `tick` cada 60 s; el estado se guarda cada 60 s y al cambiar de entidad o apagar el servidor. |
+| D1-18 | **Confirmada** (2026-10-25) | `POST /api/affect/impulse` y botones en la consola para inyectar afecto: herramienta de desarrollador permanente (§8.3). Cada uso queda con causa `manual`. |
 | D1-11 | **Confirmada** (2026-10-25) | Búsqueda vectorial con sobremuestreo y filtro posterior por `entity_id`: Neo4j 5.26 busca en todo el índice antes de poder filtrar. Se piden más vecinos que `k` (con un tope) y se descartan los de otras entidades. |
 
 **Ajustes de CP2 (2026-10-25)**
@@ -321,7 +325,7 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 - **Aceptación:** pytest: cada fórmula de §5.2 con valores conocidos (por ejemplo, N = 0.75 → `h_neg` = 42.5 min); los rasgos fuera de rango se rechazan; `calisto`, `calisto_n_bajo`, `ejemplo` e `ines` cargan; las dos variantes reciben el mismo prompt; `identity.loaded` aparece en la consola.
 
 ### CP4 — Afecto, drives y bucle rápido
-- Decisión pendiente (anotada en CP3): §5.2 solo define la vida media de la valencia **negativa** (`h_neg`). Faltan las de la valencia positiva, la alerta y la dominancia; se proponen al iniciar CP4.
+- Vidas medias que §5.2 no define: resuelto en D1-15.
 - `ebica/affect/vad.py`: el VAD de §5.4. Decaimiento hacia el atractor con `τ = h / ln 2`, asimétrico en la valencia negativa, con recorte de rangos. La función `decay(x, dt)` tiene forma cerrada y sirve tanto para el tick como para el tiempo transcurrido (D1-7). `apply_impulse()` aplica los impulsos.
 - `ebica/affect/drives.py`: `social`, `novelty` y `rest`, con `e_i += r_i·dt` y el acople `Δvalence ∝ −Σ w_i·Δe_i`.
 - `ebica/core/orchestrator.py`: una tarea asyncio con un tick de ≈1 Hz mientras la entidad está activa, que publica `tick`, `affect.updated` y `drive.updated` muestreados, y `drive.threshold_crossed`.
@@ -416,6 +420,7 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 - **Aceptación:** pytest por micro-agente, con una pizarra sintética: cada uno emite su señal al pasar el umbral y nada por debajo; ninguno escribe en la pizarra directamente; integración: "mañana te cuento cómo me fue" crea un `Commitment` abierto que aparece en el contexto del turno siguiente.
 
 ### CP11 — Validación de la fase
+- Hallazgo de CP4, a resolver aquí: con el acople drive → valencia activo, la vida media medida respecto del reposo nominal es mayor que `h_neg` (Calisto 50,4 min frente a 42,5; `calisto_n_bajo` 30,6 frente a 27,5; razón 1,65 frente a 1,55, +6,6 %). Los drives que crecen arrastran la valencia hacia abajo. Opciones: medir respecto del equilibrio efectivo, o con los drives estables. Se decide al iniciar CP11.
 - `scripts/validate_phase1.py`: un escenario de varios días con el tiempo inyectado al cargar (D1-7). Usa Inés e `ines_n_bajo`, el mismo episodio hostil y la medición de la vida media del ánimo a partir de los eventos `affect.updated`.
 - Precisión de recuerdo de hechos sembrados y de hechos contados por el usuario (unas 10 preguntas), con revisión manual de la relevancia (§12).
 - Latencias por turno (p50/p95), VRAM y RAM.

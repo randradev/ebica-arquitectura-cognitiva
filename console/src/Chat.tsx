@@ -10,7 +10,7 @@ interface Line {
  * Chat con la entidad activa por `/ws/chat`. La respuesta se va escribiendo
  * fragmento a fragmento a medida que el LLM la genera (streaming).
  */
-export function Chat({ activeId }: { activeId: string | null }) {
+export function Chat({ activeId, activeName }: { activeId: string | null; activeName: string | null }) {
   const [lines, setLines] = useState<Line[]>([])
   const [draft, setDraft] = useState('')
   const [waiting, setWaiting] = useState(false)
@@ -58,7 +58,7 @@ export function Chat({ activeId }: { activeId: string | null }) {
       <div className="lines">
         {lines.map((line, index) => (
           <p key={index} className={`line ${line.author}`}>
-            <strong>{line.author === 'entidad' ? activeId ?? 'entidad' : line.author}:</strong>{' '}
+            <strong>{line.author === 'entidad' ? activeName ?? 'entidad' : line.author}:</strong>{' '}
             {line.text || (waiting && index === lines.length - 1 ? '…' : '')}
           </p>
         ))}

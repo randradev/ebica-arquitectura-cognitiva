@@ -5,6 +5,10 @@ import { type EngineEvent, wsUrl } from './types'
 // JSONL del disco; la consola solo muestra los recientes para no crecer sin límite.
 const MAX_EVENTS = 500
 
+// CONSTANTE: eventos de hoy que se piden al conectar, para ver el estado actual
+// aunque la consola se abra tarde (pendiente 5 de Fase 0).
+const HISTORY_EVENTS = 200
+
 // CONSTANTE: espera antes de reintentar si el backend se cae o reinicia.
 const RECONNECT_MS = 2000
 
@@ -23,11 +27,14 @@ export function useEvents(): { events: EngineEvent[]; connected: boolean } {
 
     /** Abre la conexión y programa un reintento cuando se cierra. */
     function connect(): void {
-      socket = new WebSocket(wsUrl('/ws/events'))
+      socket = new WebSocket(wsUrl(`/ws/events?history=${HISTORY_EVENTS}`))
       socket.onopen = () => setConnected(true)
       socket.onmessage = (message) => {
         const event = JSON.parse(message.data) as EngineEvent
-        setEvents((previous) => [event, ...previous].slice(0, MAX_EVENTS))
+        // Al reconectar, el historial repite eventos ya recibidos: se descartan por id.
+        setEvents((previous) =>
+          previous.some((known) => known.id === event.id) ? previous : [event, ...previous].slice(0, MAX_EVENTS),
+        )
       }
       socket.onclose = () => {
         setConnected(false)

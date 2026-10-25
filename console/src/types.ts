@@ -24,6 +24,7 @@ export type ChatReply =
 export interface EntityList {
   ids: string[]
   active: string | null
+  active_name: string | null
 }
 
 /** URL absoluta de un WebSocket del backend, pasando por el proxy de Vite. */

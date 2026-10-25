@@ -472,3 +472,71 @@ Conversación con el usuario, sin cambios de código.
 **Pendiente**
 - CP4: proponer las vidas medias que §5.2 no define (valencia positiva, alerta, dominancia).
 - Commit de CP3 (lo hace el usuario).
+
+---
+
+## 2026-10-25 · CP4 — Afecto, drives y bucle rápido
+
+**Decisiones del usuario**
+- Pidió antes una explicación sencilla de D1-15 a D1-18 (vidas medias, drives, muestreo e inyección de afecto) y luego los aprobó tal como estaban propuestos (`PLAN.md` §5.1).
+
+**Cambios**
+- `ebica/affect/vad.py` (nuevo):
+  - `VAD` inmutable;
+  - `AffectDynamics` (reposo y vidas medias desde los rasgos; constantes de D1-15);
+  - `relax`/`decay` en forma cerrada: la vida media de la valencia depende del lado del reposo en que esté, y como nunca cruza el reposo, la fórmula es exacta;
+  - `apply_impulse` con recorte de rangos.
+- `ebica/affect/drives.py` (nuevo): `social`, `novelty` y `rest` con las tasas de D1-16 (`social` × `r_soc_factor`); `rest` se recupera mientras la entidad está descargada; acople `−Σ w·Δe`; cruces del umbral 0,7.
+- `ebica/core/orchestrator.py` (nuevo):
+  - `wake()` inicializa el ánimo en el reposo y aplica el tiempo descargada en tramos de 60 s (D1-7);
+  - `tick()` avanza según el tiempo real (no cuenta ticks) y muestrea el reporte y el guardado (D1-17);
+  - `inject()` aplica el impulso manual (D1-18);
+  - `start()`/`stop()` manejan la tarea asyncio. El reloj es inyectable.
+- `ebica/core/state.py`: `EntityState` añade `affect`, `drives` y `last_tick_at`.
+- `ebica/entities/manager.py`: `save_state()` pasa a ser público (lo usa el orquestador).
+- `ebica/api/server.py`:
+  - `Engine.activate()`/`deactivate()`: el bucle rápido arranca al cargar y se detiene, guardando el estado, al cambiar de entidad o apagar el servidor;
+  - `POST /api/affect/impulse`;
+  - `active_name` en `GET /api/entities`;
+  - `/ws/events?history=N`, opcional para no romper a los clientes actuales: se suscribe antes de leer el JSONL y descarta los ids repetidos.
+- Consola:
+  - `AffectPanel.tsx` (nuevo): barras de VAD con la marca del reposo, drives con la marca del umbral, hora y origen del último reporte, y botones de impulso;
+  - el chat muestra el nombre (pendiente 5a de Fase 0);
+  - `useEvents` pide el historial y descarta duplicados al reconectar (pendiente 5b).
+- Pruebas: `tests/test_affect.py` (nuevo, 18) y 5 nuevas en `tests/test_turn_and_api.py`. Se ajustaron 2 aserciones de esa misma prueba por cambios intencionales: los eventos del despertar y `active_name`.
+
+**Relación con EBICA**
+- Calisto ya tiene un ánimo con inercia. Un golpe de −0,5 la deja en −0,54 y vuelve sola hacia su reposo (−0,04), más despacio que su variante (N 0.25). Las necesidades crecen con el tiempo y pesan un poco sobre el ánimo. Es la base causal que CP5 conectará con lo que se dice en la conversación (appraisal → impulsos).
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `157 passed`, con integración.
+- Unitarias con tiempo inyectado:
+  - la vida media de la valencia negativa es 42,5 min (±2 %) y la positiva, 20 min;
+  - la razón entre variantes es 42,5 / 27,5;
+  - un paso de 1 h equivale a 3600 pasos de 1 s (sin error acumulado);
+  - los drives respetan sus límites y `rest` se recupera descargada;
+  - el acople tiene el signo correcto y se detectan los cruces de umbral;
+  - una semana descargada deja el ánimo en reposo, `social`/`novelty` en 1 y `rest` en 0;
+  - sin cambios no se reporta nada, y cada 60 s se reporta y se guarda;
+  - el estado sobrevive a guardar y cargar; la tarea arranca y se detiene limpiamente.
+- Consola: `npx tsc -b` → sin errores; `npx oxlint` → código de salida 0.
+- **Prueba en vivo en el navegador** (Chrome; backend en el puerto 8000 sobre una copia temporal de las entidades; Vite en el 5173):
+  - al cargar `calisto`, el panel muestra el reposo (−0,04 / 0,47 / 0,42) y los drives (0,2 / 0,2 / 0);
+  - «valencia −0,5» deja la valencia en −0,54 al instante, con `source: manual`;
+  - 61 s después, un `affect.updated` de `tick` la muestra en −0,53 (lo predicho: ~0,01 por minuto);
+  - al recargar la página, el historial devuelve el estado actual de inmediato;
+  - el chat muestra «Calisto Almendra»;
+  - sin errores en la consola del navegador ni en el log del backend;
+  - 15 eventos en ~3 min (≈ 3 por minuto en reposo, ≈ 4300 al día).
+  - Los servidores se detuvieron con `Stop-Process`, que no ejecuta el apagado ordenado. El guardado al apagar está cubierto por las pruebas, no por esta sesión en vivo. La copia temporal se borró.
+
+**Problemas y soluciones**
+- Una aserción mal escrita en una prueba (la precedencia de `|` frente a `in`) dio un falso fallo; el comportamiento era correcto y se reescribió la aserción.
+- Un comando con un `python3 -` suelto quedó esperando entrada y bloqueó las ediciones de la consola. Se detuvo la tarea, se confirmó que no se había aplicado nada y se rehízo con un script.
+
+**Hallazgo para CP11** (anotado en `PLAN.md`)
+- Con el acople de los drives activo, la vida media medida en el bucle completo es mayor que `h_neg`: 50,4 frente a 42,5 min (Calisto) y 30,6 frente a 27,5 (variante). La razón medida es 1,65 frente a 1,55 (+6,6 %), dentro del ±10 % del criterio de §11 pero cerca del borde. Los drives que crecen arrastran la valencia hacia abajo: el ánimo tiende a un equilibrio algo menor que el reposo nominal. Es coherente con Solms (necesidades sin atender, ánimo más bajo), pero hay que medirlo bien en CP11.
+
+**Pendiente**
+- CP5: el appraisal produce impulsos; el contacto y la novedad satisfacen los drives; vía baja; cola de GPU.
+- CP11: método de medición de la vida media con los drives activos.

@@ -9,10 +9,10 @@ async function fetchEntities(): Promise<EntityList> {
 
 /**
  * Lista, crea y carga entidades (`/api/entities`). Avisa al padre qué
- * entidad quedó activa, para habilitar el chat.
+ * entidad quedó activa (id y nombre), para el chat y el panel de afecto.
  */
-export function EntityPanel({ onActive }: { onActive: (id: string | null) => void }) {
-  const [list, setList] = useState<EntityList>({ ids: [], active: null })
+export function EntityPanel({ onActive }: { onActive: (id: string | null, name: string | null) => void }) {
+  const [list, setList] = useState<EntityList>({ ids: [], active: null, active_name: null })
   const [selected, setSelected] = useState('')
   const [form, setForm] = useState({ id: '', name: '', persona: '' })
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +22,7 @@ export function EntityPanel({ onActive }: { onActive: (id: string | null) => voi
     (data: EntityList) => {
       setList(data)
       setSelected((current) => current || data.active || data.ids[0] || '')
-      onActive(data.active)
+      onActive(data.active, data.active_name)
     },
     [onActive],
   )

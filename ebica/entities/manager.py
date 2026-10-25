@@ -121,7 +121,7 @@ class EntityManager:
             )
 
         state = EntityState(entity_id=config.id)
-        self._save_state(state)
+        self.save_state(state)
         self.bus.emit(config.id, "entity.created", {"name": config.name})
         return Entity(config=config, state=state)
 
@@ -144,7 +144,7 @@ class EntityManager:
             state = EntityState(entity_id=entity_id)
 
         state.last_loaded_at = datetime.now(timezone.utc)
-        self._save_state(state)
+        self.save_state(state)
         self.bus.emit(
             entity_id,
             "entity.loaded",
@@ -226,7 +226,7 @@ class EntityManager:
             )
         return _merge(base_data, data)
 
-    def _save_state(self, state: EntityState) -> None:
+    def save_state(self, state: EntityState) -> None:
         """
         Guarda el estado en `state.json` de forma atómica.
 

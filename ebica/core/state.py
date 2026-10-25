@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ebica.affect.drives import INITIAL_DRIVES
+from ebica.affect.vad import VAD
 from ebica.core.events import ENTITY_ID_PATTERN
 from ebica.identity.biography import PrimaryPerson, SeedBiography
 from ebica.identity.traits import Traits
@@ -75,3 +77,12 @@ class EntityState(BaseModel):
     created_at: datetime = Field(default_factory=_utc_now)
     # None hasta la primera carga.
     last_loaded_at: datetime | None = None
+    # Ánimo actual (CP4). None hasta que el orquestador despierta a la entidad
+    # por primera vez y lo pone en su reposo (que depende de los rasgos, que
+    # el estado no conoce).
+    affect: VAD | None = None
+    # Error de cada drive en [0, 1] (CP4, §5.3).
+    drives: dict[str, float] = Field(default_factory=lambda: dict(INITIAL_DRIVES))
+    # Último instante en que avanzó la dinámica; al cargar, el tiempo desde
+    # aquí se aplica como tiempo descargada (D1-7).
+    last_tick_at: datetime | None = None
