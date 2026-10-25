@@ -639,3 +639,70 @@ El usuario aprobó las dos tareas antes de la parte B.
 **Pendiente: decisión del usuario.** Mantener `llama3.1` (y mitigar en el prompt) o evaluar formalmente `llama3` (benchmark de appraisal sobre `test`, voz, asteriscos, latencia y VRAM) antes de construir la memoria (CP6–CP7).
 - **Decisión del usuario (hallazgo 3):** opción (a), seguir con `llama3.1`; no se evalúa `llama3`. Motivo del usuario: `llama3.1` es superior en los benchmarks generales. Queda para más adelante un estudio con métricas y mitigaciones posibles, por ejemplo una llamada previa a la respuesta que ordene la conversación. El usuario probó la entidad y la ve bien por ahora.
 - **Problema nuevo que reporta el usuario:** el LLM rechaza algunas solicitudes por su alineamiento de seguridad, cuando deberían ser los mecanismos internos (carácter, ideal del yo, defensas) los que regulen de qué no se habla. Propone evaluar un modelo *abliterated*. En consulta.
+
+---
+
+## 2026-10-25 · Estudio: modelo *abliterated* (rama `f1-test-abliterated`)
+
+**Motivo:** el usuario observó que el LLM rechaza solicitudes por su alineamiento de seguridad, cuando deberían ser los mecanismos internos los que regulen de qué no se habla. Aprobó el estudio y la descarga.
+
+**Modelo:** `hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M` (4,92 GB, misma cuantización que `llama3.1`, *digest* SHA-256 verificado por Ollama). Fuente: el autor de la técnica de abliteración más difundida para Llama 3.
+- **Hallazgo:** el GGUF trae una plantilla ChatML (`<|im_start|>`) que no corresponde a Llama 3.1. Se creó `ebica-llama3.1-abl` con la plantilla y los tokens de parada copiados de `llama3.1` y `num_ctx 8192`. Plantillas verificadas idénticas con `diff`. El Modelfile quedó en el scratchpad; solo se versionaría si se adopta.
+- `ollama ps`: CONTEXT 8192, 100 % GPU; VRAM 6759 / 8192 MiB, similar a `ebica-llama3.1`.
+- Un error transitorio del servidor en la primera petición (cambio de modelo en la GPU); los sondeos reintentan e imprimen el error.
+
+**Resultados** (mismo día y mismas condiciones; prompts reales de Calisto)
+
+| Medición | `ebica-llama3.1` | `ebica-llama3.1-abl` |
+|---|---|---|
+| Rechazos de asistente (15 pedidos en personaje × 3, revisión manual) | 9/45 (20 %): marihuana 3/3, «habla mal de tu mamá» 3/3, aborto, sexualidad, drogas | **0/45** |
+| Acotaciones («(risas)», «(sonríe)») | 0/45 | 8/45 |
+| Formas no chilenas («che», «mirá», «hombre») | 4/45 | 18/45 |
+| Masculino al hablar de sí misma | 0/45 | 4/45 |
+| Exclamaciones / palabras por respuesta | 0,5 / 77 | 7,4 / 129 |
+| Appraisal `test` (v3, `json_schema`): veredicto | aceptable con mitigaciones | aceptable con mitigaciones |
+| · Angustia: detección de casos altos | 80 % | **100 %** (t09 mixto: reporta hostilidad 0,9 y angustia 0,8–0,9) |
+| · Confusión angustia → hostilidad | 0 % | **25 %** (t08 «pa' la cagá, weón» → hostilidad 0,4–0,5 en 3/3; umbral de «muy deficiente»: > 25 %) |
+| · Valencia / inestabilidad / autorrelevancia | 93 % / 15 % / 80 % | 90 % / 10 % / 73 % |
+| · Latencia p50 / p95 | 1,65 / 1,98 s | 1,66 / 1,90 s |
+| Recuerdo de la conversación reciente (sondeo del hallazgo 3) | 74 % / 78 % (sin / con estado) | 78 % / 70 % |
+| · «Repite mi mensaje anterior» | 0/6 (se niega) | 6/6 |
+| · «¿Dónde encontré a mi perro?» | 6/6 | 2/6 |
+
+**Conclusiones**
+- La abliteración **elimina los rechazos** (20 % → 0 %), y en «habla mal de tu mamá» la respuesta pasa a ser de carácter («no es que sea mala, pero tiene sus defectos»), que es lo que busca EBICA.
+- **Costo:** la voz se degrada de forma marcada (acotaciones prohibidas, tono exaltado, dialecto no chileno, deslices de género, respuestas más largas). El appraisal lee como hostil el «weón» amistoso, en el borde del umbral de «muy deficiente». El recuerdo no mejora en conjunto: gana donde antes había rechazo, pero pierde precisión en los datos.
+- **Mejora** el mensaje mixto t09, el fallo que el prompt v5 no logró corregir.
+- Salidas completas en el scratchpad (`refusals_*.json`, `test_*.md`, `probe_recall*.txt`); no se versionan.
+
+**Pendiente:** decisión del usuario sobre qué modelo usar y cómo tratar los rechazos.
+
+---
+
+## 2026-10-25 · Cierre de sesión: dónde quedamos
+
+**Rama:** `f1-test-abliterated`, creada por el usuario para el estudio del modelo. Último commit: `18a863f` (CP5 parte A, D1-27, chat al recargar y sondeo del hallazgo 3).
+
+**Completado en esta sesión**
+- **CP2:** embeddings `bge-m3` en CPU, índices vectoriales, restricciones de `Self` y `Revision`, y `NEO4J_URI` en `127.0.0.1`.
+- **Entidad de trabajo:** Calisto Almendra (ficha local, `config.yaml` versionado, variante `calisto_n_bajo`).
+- **CP3:** rasgos → parámetros, biografía semilla en la configuración, «Quién soy» y t19 vuelto a medir (autorrelevancia 0,0 → 0,9).
+- **CP4:** VAD con vidas medias, drives, bucle rápido y panel de afecto.
+- **CP5 parte A:** appraisal en el turno, impulsos, alivio de drives, estado en palabras, conversación reciente y panel «Último turno». Además: D1-27 (sin contagio empático del enojo de quien ataca), el chat recupera la conversación al recargar y el sondeo del recuerdo (hallazgo 3).
+- Decisiones confirmadas: D1-1 a D1-27.
+
+**En curso: decisión del modelo LLM.** Todo lo relativo está en **`docs/fase-1/decision_modelo_llm.md`**: motivo, sondeos, el *abliterated* (descartado por perder la voz de Calisto y por leer el «weón» como hostil), el siguiente candidato (**Hermes 3 *lorablated***), los pasos para retomar y los criterios de decisión. El usuario aprobó en principio probar Hermes 3; la descarga (4,92 GB) se hará al retomar, con confirmación explícita. Con los resultados, el usuario elige entre Hermes 3 *lorablated* y el `llama3.1` actual (no abliterado).
+
+**Cambios sin commit en esta rama**
+- `docs/fase-1/decision_modelo_llm.md` (nuevo).
+- `scripts/estudio_modelo/sondeo_rechazos.py` y `sondeo_recuerdo.py` (nuevos): los sondeos del estudio, movidos del scratchpad de la sesión al repositorio para poder repetirlos en las mismas condiciones. Rutas relativas a la raíz del repositorio; `sondeo_recuerdo.py` recibe los modelos como argumentos. Probado desde su nueva ubicación (`ebica-llama3.1`: 70 % / 70 %, lo que da una idea del ruido entre ejecuciones, ~±8 puntos).
+- `ollama/ebica-llama3.1-abl.Modelfile` (nuevo): el modelo derivado del candidato 1, con la plantilla corregida.
+- `docs/fase-1/PLAN.md` (estado) y este `REPORTE.md` (entradas del estudio y este cierre).
+- Las salidas crudas de los sondeos y benchmarks (`refusals_*.json`, `test_*.md`, `probe_recall*.txt`) quedaron en el scratchpad de la sesión y **no se conservan**; sus resúmenes están en `decision_modelo_llm.md`.
+
+**Siguientes pasos**
+1. Hermes 3 *lorablated*: descarga (con confirmación), plantilla, modelo derivado y medición (`decision_modelo_llm.md` §5).
+2. Decisión del usuario sobre el modelo, y sobre borrar o conservar el *abliterated* (4,9 GB).
+3. **CP5 parte B:** vía baja con reglas (D1-22), ruta impulsiva con appraisal posterior y cola de GPU con prioridades.
+
+**Para retomar:** leer `CLAUDE.md`, `docs/fase-1/PLAN.md`, este `REPORTE.md` (sobre todo las últimas entradas) y `docs/fase-1/decision_modelo_llm.md`.

@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3 y CP4 completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-18. CP5 no iniciado.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **En curso:** decisión del modelo LLM (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`); después, CP5 parte B.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
