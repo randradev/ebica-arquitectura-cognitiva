@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-10 confirmadas. CP2 no iniciado.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-11 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). CP3 no iniciado.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -153,6 +153,12 @@ todo lo que producen los checkpoints anteriores.
 | D1-8 | **Confirmada, con condición** | (a) Intercambio literal. En CP9 se mide cuánto del presupuesto de la WorkingMemory ocupan los recuerdos; si no alcanza, se añade (b), un resumen con el LLM con baja prioridad, previa consulta. |
 | D1-9 | **Confirmada** | `Revision.episode_id` + unicidad `(entity_id, episode_id, version)`; `Self` único por `entity_id`. |
 | D1-10 | **Confirmada** | Conteo aproximado por caracteres, calibrado con `usage.prompt_tokens`. |
+| D1-11 | **Confirmada** (2026-10-25) | Búsqueda vectorial con sobremuestreo y filtro posterior por `entity_id`: Neo4j 5.26 busca en todo el índice antes de poder filtrar. Se piden más vecinos que `k` (con un tope) y se descartan los de otras entidades. |
+
+**Ajustes de CP2 (2026-10-25)**
+- D1-3, criterio de elección **confirmado** antes de medir: gana `bge-m3` si p95 < 150 ms por mensaje, RAM pico del proceso < 3,5 GB y su MRR no queda más de 0,05 bajo el de `multilingual-e5-base`; si no, `multilingual-e5-base`. Preferencia del usuario por `bge-m3` cuando los recursos alcanzan. El límite de RAM supera a conciencia el presupuesto orientativo de §9 (1–2 GB), porque los pesos de `bge-m3` en `float32` ya ocupan ~2,3 GB y hay 32 GB disponibles.
+- Dependencias de embeddings como extra opcional `[embeddings]` en `pyproject.toml`, importadas solo al usarse: `pytest` sigue funcionando sin `torch`. `torch` se instala aparte, desde el índice de CPU.
+- `NEO4J_URI`: se mide `localhost` frente a `127.0.0.1` con el driver bolt; el cambio se consulta según el resultado.
 
 ### 5.2 Propuestas afinadas (pendientes de aprobación)
 
@@ -296,6 +302,8 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
   - **si resulta muy deficiente, me detengo y te consulto** antes de seguir.
 
 ### CP2 — Embeddings en CPU, índices vectoriales y restricciones pendientes
+- **Parte 1:** latencia de Neo4j con `localhost` frente a `127.0.0.1`; instalación de `torch` (CPU) y `sentence-transformers`; corpus `benchmarks/embeddings/retrieval.yaml` y `scripts/compare_embeddings.py`. Pausa para que el usuario revise el corpus.
+- **Parte 2:** medición, elección del modelo, `embeddings.py`, esquema y pruebas.
 - Sondeo: carga y latencia de los dos modelos candidatos (D1-3), RAM usada, y una prueba de recuperación con unas 20 consultas en español. Se elige uno y se registra.
 - `ebica/perception/embeddings.py`: interfaz `Embedder` (`embed(texts) -> vectores normalizados`), que se ejecuta fuera del bucle de eventos para no bloquearlo, más una implementación falsa para las pruebas.
 - `graph.py`: índices vectoriales (similitud coseno, dimensión del modelo elegido) para `Episode`, `Fact` y `Topic`; restricción única de `Self` por `entity_id` y de `Revision` por `(entity_id, episode_id, version)` (D1-9).
@@ -333,6 +341,7 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 - Prompt: sección 2 ("Cómo me siento", en palabras) y sección 8 (los últimos N turnos).
 - La lógica del turno pasa de `core/turn.py` al orquestador. La API sigue siendo solo transporte.
 - Mitigaciones pendientes del benchmark de CP1 (se deciden contigo al empezar CP5): formato `json_schema` o `json_object` para el appraisal; regla de coherencia para el sarcasmo con superficie positiva (hostilidad alta con valencia positiva); el sesgo hacia la hostilidad en los mensajes mixtos; y volver a medir t19 (pregunta sobre ser IA) con el perfil real de la entidad.
+- Pendiente de CP2: con `bge-m3`, los prototipos hostiles y no hostiles se separan solo en el 55 % de los casos (`docs/fase-1/comparacion_embeddings.md`). Decidir si la regla de prototipos de D1-4 baja su peso, se elimina o se pasa a la opción (b).
 - Consola: un panel "último turno" con el appraisal, la marca de vía baja, los impulsos aplicados y las latencias.
 - **Aceptación:**
   - pytest con LLM simulado: cadena `perception.input` → `llm.request` (appraisal) → `affect.updated` → `llm.request` (dialogue) → `llm.response`, encadenada por `cause_id`;
@@ -346,6 +355,7 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
   - `Episode`: texto, embedding y afecto al momento de vivirlo; `importance`, `confidence` = 1, `lability` = 0, `access` = open y `version` = 1;
   - `Trace`: texto crudo, afecto y appraisal en JSON;
   - enlaces: `NEXT`, `DERIVED_FROM`, `ABOUT` hacia los `Topic` y `Commitment` creados en vigilia.
+- Validar la dimensión del embedding antes de escribir: Neo4j acepta un vector de otra dimensión sin error y lo deja fuera del índice, invisible para la búsqueda (sondeado en CP2).
 - Al cargar la entidad, la biografía semilla se importa al grafo de forma idempotente, con ids estables: `Self`, `Fact` de dominio `self` con `source = seed` y `Episode` iniciales con su `Trace`.
 - Eventos `memory.written` y `tom.person_created`, este último si se crea el `Person` del usuario principal.
 - **Aceptación:** pruebas de integración en una entidad temporal:
@@ -357,7 +367,8 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 ### CP7 — Recuperación híbrida
 - `ebica/memory/retrieval.py`:
   - candidatos: top-N vectoriales de `Episode` y `Fact`, más los vecinos a 1–2 saltos de los `Topic` y `Person` activos, sin `access = blocked` ni `Trace`;
-  - puntaje de §7.3: similitud, recencia, importancia, congruencia con el ánimo y compromisos abiertos;
+  - puntaje de §7.3: similitud, recencia, importancia, congruencia con el ánimo y compromisos abiertos. El `score` de Neo4j es `(1 + coseno) / 2`, no el coseno (medido en CP2): hay que tenerlo en cuenta al fijar los pesos;
+  - `GraphStore.vector_search` (CP2) aplica D1-11 y puede devolver menos de `k` si otra entidad acapara los vecinos. Si hace falta, se evalúa aquí un respaldo por similitud exacta sobre los nodos de la entidad (`vector.similarity.cosine`);
   - selección final con MMR (`λ_mmr`, hasta `k`, según O);
   - efecto: sube la `lability` de lo recuperado;
   - las alertas altas con valencia negativa bajan `k` (§5.4).

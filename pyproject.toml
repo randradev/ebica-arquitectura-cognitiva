@@ -26,6 +26,12 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+# Embeddings en CPU (Fase 1, CP2, D1-3). Es un extra para que las pruebas
+# unitarias no necesiten torch. `torch` no se lista aquí a propósito: debe
+# instalarse antes desde el índice de CPU de PyTorch (ver README).
+embeddings = [
+    "sentence-transformers>=6.2",
+]
 
 [tool.setuptools.packages.find]
 include = ["ebica*"]

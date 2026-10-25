@@ -15,6 +15,18 @@ pytest
 
 Copia `.env.example` como `.env` para la configuración local.
 
+### Embeddings (opcional para las pruebas unitarias)
+
+Los embeddings corren en CPU. Instala `torch` **antes** y desde el índice de CPU de
+PyTorch; si no, `pip` puede traer la variante con CUDA, que pesa varios GB:
+
+```powershell
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -e ".[dev,embeddings]"
+```
+
+Las pruebas unitarias usan un embedder falso y no necesitan este paso.
+
 ## Neo4j (memoria)
 
 Requiere Docker Desktop y un `.env` con `NEO4J_PASSWORD` (la contraseña se fija

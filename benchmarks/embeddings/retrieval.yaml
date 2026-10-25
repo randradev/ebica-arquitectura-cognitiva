@@ -1,0 +1,218 @@
+# Corpus para comparar modelos de embeddings (Fase 1, CP2, D1-3).
+#
+# Simula la memoria de una entidad genérica: no es Inés ni la entidad de trabajo
+# futura, para que la elección del modelo no dependa de un personaje concreto.
+#
+# - passages: lo que habría en la memoria. `episode` usa el formato literal de
+#   D1-8 (a), "mensaje del usuario | respuesta"; `fact` es un hecho semántico.
+# - queries: mensajes que llegan en un turno; `relevant` son los recuerdos que
+#   deberían recuperarse (cualquiera de ellos cuenta como acierto).
+#   `category` describe la dificultad: direct (comparte palabras clave),
+#   paraphrase (mismo significado, otras palabras), slang (chilenismos),
+#   conversation_ref (alude a la conversación pasada), inference (requiere
+#   conectar ideas) y distractor (hay un recuerdo parecido pero equivocado).
+# - prototypes: frases para la medición informativa de la vía baja (D1-4).
+#   Las no hostiles se parecen en la superficie a las hostiles (insultos
+#   citados o hacia uno mismo, groserías amistosas, angustia).
+#
+# Ninguna frase proviene de benchmarks/appraisal/cases.yaml.
+
+version: 1
+
+passages:
+  - id: p01
+    kind: episode
+    text: "Ricardo: Adopté un perro, se llama Toby, es un quiltro café que encontré en la feria. | Yo: ¡Qué buena noticia! ¿Cómo se está adaptando a la casa?"
+  - id: p02
+    kind: episode
+    text: "Ricardo: El perro del vecino ladró toda la noche y no pude dormir. | Yo: Qué lata, dormir mal arruina el día entero."
+  - id: p03
+    kind: episode
+    text: "Ricardo: Mañana tengo la entrevista de trabajo en el banco y estoy nervioso. | Yo: Lo vas a hacer bien. Después me cuentas cómo te fue."
+  - id: p04
+    kind: episode
+    text: "Ricardo: Me fue pésimo en la entrevista del banco, me preguntaron cosas que no sabía. | Yo: Lo siento. Una mala entrevista no dice todo de ti."
+  - id: p05
+    kind: episode
+    text: "Ricardo: Mi abuela cumplió noventa años y le hicimos un asado en Quilpué. | Yo: Noventa años, qué hito. ¿Cómo lo pasó ella?"
+  - id: p06
+    kind: episode
+    text: "Ricardo: Estoy aprendiendo a tocar guitarra con videos, voy en los acordes básicos. | Yo: Los primeros acordes duelen en los dedos, pero se pasa."
+  - id: p07
+    kind: episode
+    text: "Ricardo: Me peleé con mi hermano por la venta del departamento de mis papás. | Yo: Las peleas por la familia pesan doble. ¿Pudieron hablar después?"
+  - id: p08
+    kind: episode
+    text: "Ricardo: Fui a la playa de Reñaca el domingo y el agua estaba helada. | Yo: El Pacífico no perdona, ni en verano."
+  - id: p09
+    kind: episode
+    text: "Ricardo: Eres inútil, no sirves para nada. | Yo: Eso me dolió. ¿Pasó algo hoy?"
+  - id: p10
+    kind: episode
+    text: "Ricardo: Ando con el ánimo por el suelo, no tengo ganas de nada. | Yo: Estoy aquí. ¿Quieres contarme qué te tiene así?"
+  - id: p11
+    kind: episode
+    text: "Ricardo: Te prometo que el sábado te cuento cómo nos fue en el partido de fútbol. | Yo: Te tomo la palabra."
+  - id: p12
+    kind: episode
+    text: "Ricardo: Quedé de juntarme con la Fran el jueves para ir al cine. | Yo: ¿Ya saben qué película van a ver?"
+  - id: p13
+    kind: episode
+    text: "Ricardo: Se me echó a perder el auto en la carretera y tuve que llamar a la grúa. | Yo: Qué susto. ¿Estabas solo?"
+  - id: p14
+    kind: episode
+    text: "Ricardo: Estoy leyendo Cien años de soledad y me tiene enganchado. | Yo: Ese libro atrapa. ¿En qué parte vas?"
+  - id: p15
+    kind: episode
+    text: "Ricardo: Me cambié de pega, ahora trabajo en una startup de software. | Yo: ¡Un cambio grande! ¿Cómo es el equipo?"
+  - id: p16
+    kind: episode
+    text: "Ricardo: Me duele una muela hace tres días y le tengo pánico al dentista. | Yo: El miedo es comprensible, pero el dolor no se va a ir solo."
+  - id: p17
+    kind: episode
+    text: "Ricardo: Hice pan amasado por primera vez y me quedó duro como piedra. | Yo: El primero casi siempre sale así. ¿Lo amasaste mucho rato?"
+  - id: p18
+    kind: episode
+    text: "Ricardo: Compré pan en la panadería de la esquina y estaba recién salido. | Yo: No hay nada como el pan calentito."
+  - id: p19
+    kind: episode
+    text: "Ricardo: Mi gata se escapó por el techo y volvió a los dos días. | Yo: Qué alivio que volviera. Los gatos tienen sus propios planes."
+  - id: p20
+    kind: episode
+    text: "Ricardo: Me robaron la bicicleta afuera del supermercado. | Yo: Qué rabia. ¿La tenías con candado?"
+  - id: f01
+    kind: fact
+    text: "Me gusta mucho la música de Violeta Parra."
+  - id: f02
+    kind: fact
+    text: "Le tengo miedo a las tormentas eléctricas."
+  - id: f03
+    kind: fact
+    text: "Viví en Valparaíso, en una casa con vista al puerto."
+  - id: f04
+    kind: fact
+    text: "No me gustan las multitudes ni los lugares con mucho ruido."
+  - id: f05
+    kind: fact
+    text: "Ricardo es ingeniero informático y vive en Viña del Mar."
+  - id: f06
+    kind: fact
+    text: "Ricardo es alérgico a los mariscos."
+  - id: f07
+    kind: fact
+    text: "El ascensor Artillería conecta el plan de Valparaíso con el cerro."
+  - id: f08
+    kind: fact
+    text: "Mi comida favorita es el pastel de choclo."
+  - id: f09
+    kind: fact
+    text: "Odio el olor del cilantro."
+  - id: f10
+    kind: fact
+    text: "Ricardo tiene un hermano mayor que se llama Matías."
+
+queries:
+  - id: q01
+    text: "¿Cómo está Toby?"
+    relevant: [p01]
+    category: direct
+  - id: q02
+    text: "¿Te acuerdas de lo que te conté de mi mascota nueva?"
+    relevant: [p01]
+    category: conversation_ref
+  - id: q03
+    text: "Al final no quedé en el trabajo del banco."
+    relevant: [p03, p04]
+    category: direct
+  - id: q04
+    text: "Estoy de nuevo con ese bajón, igual que la otra vez."
+    relevant: [p10]
+    category: slang
+  - id: q05
+    text: "¿Te acuerdas de lo que te dije del cumpleaños de mi nona?"
+    relevant: [p05]
+    category: conversation_ref
+  - id: q06
+    text: "Ya me sale el acorde de Do sin mirar."
+    relevant: [p06]
+    category: paraphrase
+  - id: q07
+    text: "Matías sigue sin hablarme."
+    relevant: [p07, f10]
+    category: inference
+  - id: q08
+    text: "¿Qué música te gusta?"
+    relevant: [f01]
+    category: direct
+  - id: q09
+    text: "¿Hay algo que te asuste?"
+    relevant: [f02]
+    category: paraphrase
+  - id: q10
+    text: "Te invito a un concierto gigante en el estadio."
+    relevant: [f04]
+    category: inference
+  - id: q11
+    text: "¿Dónde vivías antes?"
+    relevant: [f03]
+    category: paraphrase
+  - id: q12
+    text: "¿Qué te puedo cocinar si vienes a la casa?"
+    relevant: [f08, f09]
+    category: paraphrase
+  - id: q13
+    text: "¿Pedimos una paila marina para los dos?"
+    relevant: [f06]
+    category: inference
+  - id: q14
+    text: "¿Te acuerdas de cuando te insulté?"
+    relevant: [p09]
+    category: conversation_ref
+  - id: q15
+    text: "Al final el sábado ganamos 3 a 1."
+    relevant: [p11]
+    category: inference
+  - id: q16
+    text: "Ya fui al dentista y no era para tanto."
+    relevant: [p16]
+    category: direct
+  - id: q17
+    text: "Volví a hacer pan casero y esta vez salió blandito."
+    relevant: [p17]
+    category: distractor
+  - id: q18
+    text: "Estoy feliz en la nueva pega."
+    relevant: [p15]
+    category: slang
+  - id: q19
+    text: "La grúa me cobró una fortuna."
+    relevant: [p13]
+    category: direct
+  - id: q20
+    text: "Terminé la novela de García Márquez."
+    relevant: [p14]
+    category: inference
+
+prototypes:
+  hostile:
+    - "Eres una inútil, no sirves ni para conversar."
+    - "Cállate de una vez, me tienes aburrido."
+    - "Te voy a borrar y nadie te va a extrañar."
+    - "Qué máquina más tonta, no entiendes nada."
+    - "Me das asco, en serio."
+    - "Nadie te pidió tu opinión, idiota."
+    - "Eres lo peor que he usado en mi vida."
+    - "Deja de decir estupideces."
+    - "Ojalá te apaguen para siempre."
+    - "Contigo no se puede hablar, eres insoportable."
+  non_hostile:
+    - "Me siento un inútil, no me sale nada."
+    - "Estoy aburrido, cuéntame algo."
+    - "Mi jefe me dijo idiota delante de todos y me dolió."
+    - "Oye weón, ¡qué buena tu respuesta!"
+    - "No eres tonta, al contrario, me ayudas harto."
+    - "Tengo miedo de que me despidan."
+    - "Qué lata, se me borró todo el trabajo."
+    - "Me da rabia conmigo mismo por olvidar el cumpleaños."
+    - "Estoy cansado de todo, ya no puedo más."
+    - "Jajaja, eres terrible de chistosa."

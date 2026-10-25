@@ -190,3 +190,176 @@ Registro incremental de lo que realmente ocurrió. Las entradas anteriores se co
 - Decidir en CP5: el formato del appraisal y las mitigaciones (sarcasmo, mensajes mixtos).
 - Volver a medir t19 con el perfil real de la entidad (CP3).
 - CP2 no iniciado.
+
+---
+
+## 2026-10-24 · Reflexión sobre los resultados de CP1
+
+Conversación con el usuario, sin cambios de código.
+
+**Conclusiones del usuario**
+- El veredicto "aceptable con mitigaciones" le parece correcto; la idea es ir mitigando con el tiempo. El sarcasmo y los mensajes mixtos son difíciles.
+- **Mensajes mixtos:** tiene sentido que un mismo mensaje despierte hostilidad y angustia, y que la entidad decida a cuál reaccionar.
+  - Consecuencia: el appraisal debe **reportar las dos señales**; la elección pertenece a la dinámica y al carácter (π por Amabilidad, `g_neg` por Neuroticismo y, en Fase 3, las defensas), no al appraisal.
+  - El fallo de t09 es que el appraisal borró la angustia (0.2–0.4), no que la entidad reaccionara a la hostilidad.
+  - Mitigación a futuro: que el appraisal capte ambas señales en los mensajes mixtos.
+
+**Truncado silencioso (explicado al usuario)**
+- Medido: ~1,7 tokens por palabra en español, así que 8192 tokens son ~4800 palabras.
+- La ventana incluye identidad, estado, recuerdos, historial, el mensaje y la respuesta. Con el diseño previsto, quedan ~3k tokens (~1500–1800 palabras) para el mensaje del usuario.
+- No se verificó qué parte del prompt descarta Ollama al truncar. Lo probable es que pierda el principio, donde va la identidad.
+- Propuesta para CP9, **pendiente de aprobación**:
+  - nunca truncar en silencio;
+  - prioridad fija para la identidad y el mensaje actual;
+  - recorte explícito con un evento visible si el mensaje por sí solo no cabe.
+- Subir a 16k no cabe en la VRAM sin comprimir la caché de contexto (`OLLAMA_KV_CACHE_TYPE=q8_0`); solo se exploraría si los textos largos resultan un uso real.
+
+**Duda abierta: continuidad dentro de una conversación larga**
+- En la ventana van literales solo los últimos ~5–8 turnos. En 30 minutos (~30–50 turnos, ~6–12k tokens) lo anterior queda como `Episode` y solo vuelve si la recuperación lo considera relevante.
+- Riesgo: las referencias a la propia conversación ("lo que me dijiste antes", "como te conté al principio") no se parecen semánticamente a lo que señalan, así que la recuperación por similitud no las resuelve. El hilo lineal completo se debilita.
+- Opción propuesta: un **resumen continuo** de la conversación en curso como ítem de la WorkingMemory, actualizado cada pocos turnos con una llamada de baja prioridad (~1 s de GPU, sin espera para el usuario), con una prueba con y sin resumen en CP9.
+- **Estado: duda registrada, no decidida.** No se modificó `PLAN.md`.
+
+**Pendiente**
+- Resolver la duda del resumen continuo y la política ante textos largos antes de CP9.
+- CP2 no iniciado; espera la aprobación explícita del usuario.
+
+---
+
+## 2026-10-25 · CP2 (parte 1) — Sondeo de Neo4j, instalación y corpus de embeddings
+
+**Decisiones del usuario**
+- D1-11 confirmada: sobremuestreo y filtro posterior por `entity_id` en la búsqueda vectorial.
+- Dependencias de embeddings como extra opcional `[embeddings]`.
+- Prefiere `bge-m3` si los recursos alcanzan. Criterio reformulado y **propuesto** (se confirma antes de medir): gana `bge-m3` si p95 < 150 ms, RAM pico < 2 GB y MRR no más de 0,05 bajo `e5-base`.
+- Aprobó la parte 1 de CP2.
+
+**Mediciones**
+
+| Medida | Resultado |
+|---|---|
+| Neo4j, conexión nueva (driver bolt, mediana de 5) con `localhost` / `127.0.0.1` | **2,05 s** / **0,017 s** |
+| Neo4j, consulta con conexión ya abierta | ~7 ms en ambos casos |
+
+- Se confirma la hipótesis: es el mismo problema que `httpx` con Ollama. Neo4j se publica solo en `127.0.0.1`, así que `localhost` prueba primero `::1` y Windows tarda ~2 s en abandonar ese intento. El impacto es menor que con `httpx`, porque el driver reutiliza sus conexiones (pool), pero sí afecta al arranque y a cada conexión nueva.
+- `NEO4J_URI` **no se modificó**: queda a confirmación del usuario.
+- Logs de `ebica-neo4j`: arranque limpio (Neo4j 5.26.32). El aviso "Changed password" se repite en cada arranque y no tiene efecto (la contraseña solo se aplica al crear el volumen).
+
+**Instalación** (dentro del `.venv`)
+- `pip install torch --index-url https://download.pytorch.org/whl/cpu` → `torch 2.14.1+cpu` (`cuda.is_available() = False`, 8 hilos). Efecto lateral: `setuptools` 65.5 → 78.1, requerido por `torch`.
+- Un `--dry-run` previo confirmó que `sentence-transformers` no reemplazaría `torch`. Luego `pip install sentence-transformers` → `sentence-transformers 6.2.0`, `transformers 5.20.2`, `numpy 2.4.6`, `scipy 1.17.1`, `scikit-learn 1.9.1`, `huggingface_hub 2.3.0` y otras.
+- `site-packages` pasó a ocupar 1,2 GB (`torch`: 544 MB). Disco libre antes de descargar modelos: 65 GB.
+- `pip install --dry-run -e ".[dev,embeddings]"` solo reinstalaría `ebica`: el extra resuelve sin tocar `torch`.
+- Todavía no se descargó ningún modelo.
+
+**Cambios**
+- `pyproject.toml`: extra `embeddings = ["sentence-transformers>=6.2"]`. `torch` no se lista a propósito, para que `pip` no traiga la variante con CUDA.
+- `README.md`: instalación en dos pasos (primero `torch` de CPU, luego el extra).
+- `benchmarks/embeddings/retrieval.yaml` (nuevo):
+  - 30 recuerdos: 20 episodios en formato literal D1-8 (a) y 10 hechos;
+  - 20 consultas por categoría: `direct` 5, `paraphrase` 5, `inference` 5, `conversation_ref` 3, `slang` 2 y `distractor` 1;
+  - 10 prototipos hostiles y 10 no hostiles parecidos en la superficie;
+  - perfil genérico, ni Inés ni la entidad futura. No reutiliza frases de `benchmarks/appraisal/cases.yaml`.
+- `scripts/compare_embeddings.py` (nuevo):
+  - un subproceso por modelo, para aislar la RAM;
+  - recall@1/@5, MRR, latencia p50/p95 de un mensaje, carga, RAM pico (Windows, `ctypes`) y separación de prototipos;
+  - aplica el criterio de elección y genera el informe en Markdown;
+  - `torch` se importa solo en el subproceso.
+- `tests/test_compare_embeddings.py` (nuevo, 10 pruebas): métricas, percentil, separación de prototipos, criterio de elección e integridad del corpus.
+- `PLAN.md`: estado, D1-11, ajustes de CP2 y división de CP2 en dos partes.
+
+**Relación con EBICA**
+- El corpus imita lo que pedirá la recuperación de §7.3: ante "¿cómo está Toby?" la entidad debe evocar el episodio de la adopción. Las consultas `conversation_ref` ("lo que te conté de…") miden de antemano el riesgo registrado sobre la continuidad en conversaciones largas.
+- Los prototipos miden si el modelo sirve para la vía baja (D1-4): por ejemplo, "me siento un inútil" no debe quedar más cerca de lo hostil que "eres una inútil".
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q` → `95 passed` (85 + 10).
+- `scripts/compare_embeddings.py --help` → OK.
+- **No probado:** la ruta real del script (`--prefetch` y el subproceso de medición), porque requiere descargar los modelos (parte 2).
+
+**Pendiente**
+- Revisión del corpus por el usuario.
+- Confirmación del criterio de elección y del cambio de `NEO4J_URI` a `127.0.0.1`.
+- Parte 2: descarga (~3,4 GB, comprobando que no baje `onnx/`), medición, elección, `embeddings.py`, esquema y pruebas.
+
+---
+
+## 2026-10-25 · CP2 — Revisión del corpus y cambio de `NEO4J_URI`
+
+- El usuario aprobó el corpus `benchmarks/embeddings/retrieval.yaml` tal como está.
+- El usuario aprobó el cambio de `NEO4J_URI` a `bolt://127.0.0.1:7687`. Se aplicó en `.env` (solo esa línea, con `sed`, sin leer el archivo), en `.env.example` y en `DEFAULT_URI` de `ebica/memory/graph.py`, con un comentario sobre el motivo.
+- `pytest -q -m integration tests/test_graph.py` → `3 passed` (0,63 s).
+- El criterio de elección del modelo sigue sin confirmar: el usuario pidió antes una comparación de ventajas y desventajas.
+
+---
+
+## 2026-10-25 · CP2 (parte 2) — Comparación, elección de `bge-m3`, embedder y esquema vectorial
+
+**Decisión del usuario**
+- Criterio de elección confirmado antes de medir, con el límite de RAM subido de 2 a 3,5 GB: los pesos de `bge-m3` en `float32` ya ocupan ~2,3 GB, y el presupuesto de §9 es orientativo.
+
+**Descarga de modelos** (caché de HuggingFace del usuario, fuera del repositorio)
+- `multilingual-e5-base`: 1,1 GB, solo los archivos necesarios, sin `onnx/` ni `openvino/`.
+- `bge-m3`: **4,3 GB en lugar de 2,3**. La hipótesis de `onnx/` fue correcta (no bajó), pero apareció otra cosa: la rama principal del repositorio solo publica `pytorch_model.bin` (formato *pickle*), y `transformers` descarga además la conversión a `model.safetensors` de otra revisión. Los dos archivos de pesos quedaron en la caché. No se borró nada.
+- Disco libre tras las descargas: 58 GB.
+
+**Medición** (`docs/fase-1/comparacion_embeddings.md`; 3 ejecuciones con cifras consistentes)
+
+| | `e5-base` | `bge-m3` |
+|---|---|---|
+| MRR / recall@1 / recall@5 | 0,759 / 70 % / 85 % | **0,842** / 70 % / **100 %** |
+| Latencia de un mensaje p50 / p95 | 26 / 29 ms | 85 / 96 ms |
+| RAM pico de la prueba / con todos los pesos leídos | 1,83 / 1,83 GB | 1,94 / **2,85 GB** |
+| Prototipos de la vía baja (informativa) | 60 % | 55 % |
+
+- **Elección: `bge-m3`**, que cumple las tres condiciones. La diferencia está en las paráfrasis (MRR 0,88 frente a 0,32).
+
+**Errores propios encontrados y corregidos durante la medición**
+1. **RAM en 0,00 GB.** La llamada por `ctypes` a `GetProcessMemoryInfo` no declaraba tipos: el *handle* de 64 bits se recortaba, la llamada fallaba en silencio y los contadores quedaban en cero. **La primera elección "bge-m3 cumple RAM" no era válida.** Se declararon los tipos, el script ahora lanza un error si la llamada falla, y el criterio trata una RAM no medida como incumplimiento. Comprobado reservando 300 MiB (el pico sube ~300 MiB).
+2. **RAM subestimada.** Mi estimación previa (~3 GB para `bge-m3`) no coincidía con la medición (1,94 GB). Hipótesis: los pesos se mapean desde el archivo y solo se cargan las páginas leídas; con 70 frases se lee poco de la tabla de vocabulario (45 % de los parámetros). **Confirmada:** al leer todos los pesos, `bge-m3` sube a 2,85 GB; `e5-base` no cambia. El script mide ahora esa cota y el criterio la usa.
+3. **Error en la entrada anterior del REPORTE:** decía "`paraphrase` 5, `inference` 5". El corpus tiene 4 de `paraphrase` y 5 de `inference` (20 en total). Se corrige aquí y no en la entrada original.
+
+**Sondeo de Neo4j 5.26** (etiquetas `Probe*` desechables, limpiadas al terminar)
+- Una restricción única sobre una propiedad que ya tiene un índice simple **falla** (`IndexAlreadyExists`). Por eso el esquema borra primero `self_entity_id` (Fase 0).
+- `CREATE VECTOR INDEX … IF NOT EXISTS` con otra dimensión **responde OK y conserva la anterior**. Se añadió una comprobación de dimensión.
+- Un nodo con un vector de dimensión equivocada **se guarda sin error** y queda fuera del índice. Se anotó en CP6 la validación al escribir.
+- Consultar con otra dimensión da un error claro (`IllegalArgumentException`).
+- El `score` de `queryNodes` es `(1 + coseno) / 2`, no el coseno (por ejemplo, coseno 0,11 → score 0,556). Se anotó en CP7.
+- Log de Neo4j: `WARN Java vector incubator module is not readable` (se podría acelerar la búsqueda vectorial con `--add-modules jdk.incubator.vector`). Irrelevante a la escala actual; no se cambió `docker-compose.yml`.
+
+**Cambios**
+- `ebica/perception/embeddings.py` (nuevo):
+  - interfaz `Embedder` (`model_name`, `dimension` y `async embed(texts, kind)`, con `kind` = `query` | `passage`);
+  - `KNOWN_MODELS` con la dimensión y los prefijos de cada modelo; `configured_model_name()` lee `EBICA_EMBEDDING_MODEL`, con `BAAI/bge-m3` por defecto;
+  - `SentenceTransformerEmbedder`: `load()` en un hilo, que comprueba la dimensión real; `embed()` en un hilo con `asyncio.Lock`, prefijos por tipo y vectores normalizados;
+  - `sentence-transformers` se importa solo dentro de `load()`.
+- `ebica/memory/graph.py`:
+  - `schema_statements(embedding_dimension)` con 3 índices vectoriales coseno (`episode_embedding`, `fact_embedding`, `topic_embedding`), `DROP INDEX self_entity_id IF EXISTS`, `self_entity_id_unique` y `revision_entity_id_episode_id_version` (D1-9); `Self` sale de los índices simples;
+  - `apply_schema(dimension)` espera los índices (`db.awaitIndexes`) y comprueba la dimensión (`SchemaMismatchError`);
+  - `vector_search(label, entity_id, vector, k)` con sobremuestreo ×10 y tope de 1000 (D1-11);
+  - `DEFAULT_URI` con `127.0.0.1`.
+- `tests/fake_embedder.py` (nuevo): embedder determinista por *hashing trick*, en Python puro.
+- `tests/test_embeddings.py` (nuevo): 9 unitarias (prefijos, normalización, lista vacía, modelo desconocido, variable de entorno, embedder falso) y 1 de integración con `bge-m3` real.
+- `tests/test_graph.py`: adaptado a la nueva firma; 5 unitarias y 8 de integración (nuevas: índices `ONLINE` con dimensión, detección de dimensión distinta, `Self` único, `Revision` única por versión y búsqueda vectorial con aislamiento entre entidades).
+- `scripts/compare_embeddings.py`: corrección de la RAM, cota con todos los pesos leídos, límite de 3,5 GB y `get_embedding_dimension()` (nombre nuevo en `sentence-transformers` 6.2).
+- `tests/test_compare_embeddings.py`: caso de RAM no medida (11 pruebas).
+- `.env.example`: `EBICA_EMBEDDING_MODEL=BAAI/bge-m3`. `.env` no se tocó; usa el valor por defecto.
+- `docs/fase-1/comparacion_embeddings.md` (nuevo): informe generado más un análisis escrito a mano.
+- `PLAN.md`: estado, criterio confirmado y hallazgos anotados en CP5, CP6 y CP7.
+- **Neo4j real:** se borró el índice `self_entity_id` (sustituido por el de la restricción) y se crearon 2 restricciones y 3 índices vectoriales. La base tenía 0 nodos antes y después.
+
+**Relación con EBICA**
+- Con esto, la entidad ya tiene dónde y cómo evocar. Cuando CP6 guarde "adopté un perro, se llama Toby" con su vector, la pregunta "¿cómo está tu mascota?" podrá encontrarlo aunque no comparta palabras. Eso es lo que `bge-m3` hace mejor que `e5`.
+- El aislamiento por `entity_id` quedó probado: una entidad no evoca recuerdos de otra, aunque sean idénticos.
+- La vía baja no podrá apoyarse en los embeddings para distinguir un ataque de una autocrítica. Lo que hace la entidad ante "me siento un inútil" dependerá de las reglas léxicas y del appraisal (pendiente de CP5).
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `114 passed`, unitarias e integración, con Neo4j y `bge-m3` reales.
+- `pytest -m integration tests/test_graph.py tests/test_embeddings.py -v -s` → `9 passed`. `bge-m3`: carga 3,3 s, mediana de 84 ms por mensaje (máx. 96 ms), por debajo del objetivo de 150 ms.
+- Unitarias con `torch`, `sentence_transformers`, `transformers` y `numpy` bloqueados al importar → `104 passed`: el extra es realmente opcional.
+- Tras las pruebas, Neo4j queda con 0 nodos: las entidades `test_cp2_*` se limpian.
+
+**Pendiente**
+- CP5: decidir qué hacer con la regla de prototipos de D1-4.
+- Borrar de la caché de HuggingFace lo que sobra: `e5-base` (1,1 GB) y el `pytorch_model.bin` duplicado de `bge-m3` (2,3 GB). Requiere aprobación del usuario.
+- Antes de CP3: crear la nueva entidad de trabajo, que sustituye a Inés. Encuadre D1-6 (b), con un `Episode` de origen concreto del traspaso; Ricardo como persona `primary`.
