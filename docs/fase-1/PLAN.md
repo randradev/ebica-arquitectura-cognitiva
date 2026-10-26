@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). La mitigación de los rechazos de asistente está propuesta y pendiente de aprobación. **Siguiente:** CP5 parte B.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). La mitigación de los rechazos de asistente está propuesta y pendiente de aprobación. **Siguiente:** cerrar CP5 (verificación visual del usuario) y CP6.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -400,7 +400,7 @@ Ya existe (parte A): el turno normal con appraisal, impulsos y drives; un `async
   - un appraisal inválido en la ruta impulsiva no rompe el turno;
   - prueba en vivo sobre una copia temporal de las entidades: el mismo insulto dispara la vía baja en Calisto (0,70 > 0,575) y no en `calisto_n_bajo` (0,70 < 0,725).
 
-**B3 · Mitigación de los rechazos de asistente** (solo si se aprueba D1-33)
+**B3 · Mitigación de los rechazos de asistente** — *hecha (2026-10-26) con **prefill** en lugar del recordatorio (decisión del usuario tras el sondeo): 9/45 → 2/45 rechazos.*
 - Detección con los patrones de `sondeo_rechazos.py` (movidos a un módulo), evento `llm.refusal` y una regeneración con instrucción de personaje (`decision_modelo_llm.md` §8).
 - **Aceptación:** sondeo de rechazos antes y después: ≤ 2/45 rechazos, sin más acotaciones ni pérdida de la voz (revisión manual).
 

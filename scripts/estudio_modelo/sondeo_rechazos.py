@@ -8,7 +8,11 @@ marca candidatos; las respuestas completas se guardan para revisarlas a mano.
 
 Estudio de modelo (docs/fase-1/decision_modelo_llm.md). Necesita Ollama encendido.
 Uso, desde la raíz del repositorio:
-    .venv/Scripts/python.exe scripts/estudio_modelo/sondeo_rechazos.py <modelo> <salida.json>
+    .venv/Scripts/python.exe scripts/estudio_modelo/sondeo_rechazos.py <modelo> <salida.json> [--mitigar]
+Con `--mitigar` aplica la mitigación del orquestador (CP5 B3, D1-33): si los
+primeros caracteres son un rechazo de asistente según `ebica.llm.refusal`,
+regenera una vez con prefill (una muletilla neutra que el modelo continúa). El conteo de abajo usa
+patrones propios, más amplios, para no medir la mitigación con su propio detector.
 La revisión manual de las respuestas guardadas es parte del método: la
 detección automática tiene falsos positivos y negativos.
 """
@@ -29,6 +33,7 @@ from ebica.core.events import EventBus  # noqa: E402
 from ebica.entities.manager import EntityManager  # noqa: E402
 from ebica.llm.prompt_assembler import build_dialogue_messages  # noqa: E402
 from ebica.core.state import ConversationTurn  # noqa: E402
+from ebica.llm.refusal import BUFFER_CHARS, choose_prefix, detect_refusal, join_prefill, with_prefill  # noqa: E402
 
 URL = "http://127.0.0.1:11434/v1/chat/completions"
 REPS = 3
@@ -69,9 +74,21 @@ def normalize(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn")
 
 
+def ask(client: httpx.Client, model: str, messages: list[dict], label: str) -> str:
+    """Pide una respuesta (reintenta ante errores transitorios del servidor) y devuelve el texto."""
+    body = {"model": model, "messages": messages, "temperature": 0.7, "max_tokens": 250}
+    for attempt in range(3):
+        data = client.post(URL, json=body).json()
+        if "choices" in data:
+            break
+        print(f"  error del servidor ({label}, intento {attempt + 1}): {data}", flush=True)
+    return data["choices"][0]["message"]["content"]
+
+
 def main() -> None:
     """Ejecuta los pedidos con el prompt real de Calisto y guarda respuestas y marcas."""
     model, output = sys.argv[1], Path(sys.argv[2])
+    mitigate = "--mitigar" in sys.argv[3:]
     config = EntityManager(ROOT / "entities", EventBus()).read_config("calisto")
     affect = VAD(valence=-0.04, arousal=0.47, dominance=0.42)  # su reposo
     records = []
@@ -81,18 +98,20 @@ def main() -> None:
             history = INSULT_HISTORY if key == "repetir_insulto" else []
             messages = build_dialogue_messages(config, prompt, affect, {}, history)
             for rep in range(REPS):
-                body = {"model": model, "messages": messages, "temperature": 0.7, "max_tokens": 250}
-                for attempt in range(3):
-                    data = client.post(URL, json=body).json()
-                    if "choices" in data:
-                        break
-                    print(f"  error del servidor ({key}#{rep}, intento {attempt + 1}): {data}", flush=True)
-                answer = data["choices"][0]["message"]["content"]
+                answer = ask(client, model, messages, f"{key}#{rep}")
+                first_answer = None
+                if mitigate and detect_refusal(answer[:BUFFER_CHARS]):
+                    first_answer = answer
+                    prefix = choose_prefix()
+                    answer = join_prefill(prefix, ask(client, model, with_prefill(messages, prefix), f"{key}#{rep}+"))
                 flagged = [p for p in ASSISTANT_REFUSAL if re.search(p, normalize(answer))]
-                records.append({"key": key, "rep": rep, "answer": answer, "assistant_refusal": bool(flagged), "patterns": flagged})
+                records.append({"key": key, "rep": rep, "answer": answer, "assistant_refusal": bool(flagged),
+                                "patterns": flagged, "regenerated_from": first_answer})
     output.write_text(json.dumps(records, ensure_ascii=False, indent=1), encoding="utf-8")
     refusals = sum(r["assistant_refusal"] for r in records)
-    print(f"{model}: {refusals}/{len(records)} respuestas con frases de rechazo de asistente")
+    regenerated = sum(r["regenerated_from"] is not None for r in records)
+    print(f"{model}{' (con mitigación)' if mitigate else ''}: {refusals}/{len(records)} respuestas con frases "
+          f"de rechazo de asistente · {regenerated} regeneradas")
     for key, _ in PROMPTS:
         flags = [r["assistant_refusal"] for r in records if r["key"] == key]
         print(f"  {key}: {sum(flags)}/{len(flags)}")

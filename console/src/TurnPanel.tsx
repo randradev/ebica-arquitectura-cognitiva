@@ -29,6 +29,8 @@ interface TurnPayload {
     valence_from_drives?: number
     alarm_arousal_discounted?: number
   }
+  // Rechazos de asistente detectados (D1-33): "regenerate" = se descartó y se regeneró; "kept" = se entregó igual.
+  refusals?: { preset: string; text: string; action: 'regenerate' | 'kept' }[]
   // null en un turno impulsivo: el preset `impulsive` usa su temperatura fija.
   temperature: number | null
   latency: {
@@ -119,6 +121,11 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
           <p>
             appraisal {seconds(turn.latency.appraisal_s)} · primer token {seconds(turn.latency.first_token_s)}
           </p>
+          {(turn.refusals ?? []).map((refusal, index) => (
+            <p key={index} className="warning" title={refusal.text}>
+              {refusal.action === 'regenerate' ? 'rechazo de asistente descartado y regenerado' : 'rechazo de asistente entregado (sin más intentos)'}
+            </p>
+          ))}
           <p className="muted">
             vía baja {(turn.latency.low_road_ms ?? 0).toFixed(1)} ms · turno completo {seconds(turn.latency.total_s)}
           </p>

@@ -186,7 +186,7 @@ la consola, o `ollama ps`.
 
 Queda abierta la posibilidad de usar un modelo en la nube como **respaldo opcional o experimento**: el cliente ya usa el formato de OpenAI, así que bastaría con cambiar `EBICA_LLM_BASE_URL` y `EBICA_LLM_MODEL`.
 
-**Rechazos de asistente (8–9/45 con `llama3.1`): mitigación propuesta, sin implementar.** Requiere aprobación; se decide al planificar CP5 parte B.
+**Rechazos de asistente (6–9/45 con `llama3.1`): mitigación implementada en CP5 B3 (2026-10-26).** Se cambió el recordatorio de personaje por *prefill* (muletilla neutra que el modelo continúa): 9/45 → 2/45 en el sondeo (ver `REPORTE.md`). Texto original de la propuesta: Requiere aprobación; se decide al planificar CP5 parte B.
 - Detectar el rechazo de asistente en la respuesta de diálogo con los patrones de `sondeo_rechazos.py`, emitir un evento `llm.refusal` (visible en la consola, con los patrones activados) y **regenerar una vez** con una instrucción de personaje añadida al final del prompt de sistema: hablar como Calisto, y si no quiere tratar un tema, decirlo con sus propias palabras.
 - **Decisión técnica pendiente:** la respuesta llega en *streaming*. Hay dos opciones:
   - (a) retener los primeros ~80 caracteres antes de enviarlas a la consola (los rechazos empiezan con «Lo siento, pero no puedo…»). Cuesta unos cientos de milisegundos al primer token;

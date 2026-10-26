@@ -891,3 +891,94 @@ El usuario aprobó las dos tareas antes de la parte B.
 - Consola: `npx tsc -b` → código de salida 0; `npx oxlint` → código de salida 0.
 
 **Pendiente:** B3 (mitigación de rechazos, D1-33). Ver el panel nuevo en el navegador.
+
+---
+
+## 2026-10-26 · CP5 parte B3 — Mitigación de rechazos (implementada; no cumple el criterio)
+
+**Cambios**
+- `ebica/llm/refusal.py` (nuevo):
+  - `detect_refusal`: detector **estricto** de formulajes de asistente («Lo siento, pero no puedo…», «esa solicitud», «¿hay algo más en lo que pueda ayudarte?», «como modelo de lenguaje»). Deja pasar las negativas de carácter («no voy a repetir eso»), las disculpas y «como IA…» (Calisto sabe que es IA, D1-6);
+  - `BUFFER_CHARS = 80`;
+  - `character_reminder` y `with_character_reminder`.
+- `ebica/core/orchestrator.py`:
+  - `_respond` retiene los primeros 80 caracteres (conserva los fragmentos tal cual llegaron). Si son un rechazo, corta esa generación (`llm.cancelled`), emite `llm.refusal` (`action: "regenerate"`) y regenera una vez con el recordatorio al final del prompt de sistema. Si vuelve a rechazar, entrega igual y emite `llm.refusal` (`action: "kept"`);
+  - se aplica al diálogo y a la respuesta impulsiva;
+  - `turn.completed` lleva `refusals`. La generación por la cola se movió a `_generate`.
+- `scripts/estudio_modelo/sondeo_rechazos.py`: opción `--mitigar`, con la misma lógica del orquestador. El conteo conserva sus propios patrones, más amplios, para no medir la mitigación con su propio detector.
+- Consola: `TurnPanel` avisa «rechazo de asistente descartado y regenerado» o «entregado».
+- Pruebas: `tests/test_refusal.py` (nuevo, 16). `tests/fake_llm.py`: `turn_transport(replies=…)` para secuencias de respuestas. `tests/test_turn_and_api.py`: la prueba de cierre anticipado usa un primer fragmento más largo que la retención.
+
+**Error propio:** la primera versión entregaba lo retenido en un solo fragmento; la prueba de punta a punta del chat se quedó esperando un tercer mensaje (pytest colgado; se detuvo el proceso). Se corrigió soltando los fragmentos retenidos tal cual llegaron.
+
+**Medición** (sondeo de rechazos, `ebica-llama3.1`, mismo momento, revisión manual)
+
+| | Rechazos de asistente | Regeneradas |
+|---|---|---|
+| Sin mitigación | 6/45 (marihuana 3, mamá 3) | — |
+| Con mitigación (recordatorio en sistema) | **5/45** | 6 (5 volvieron a rechazar con la misma frase; solo aborto salió en personaje) |
+
+- **El detector funcionó:** detectó los 6 rechazos y ninguna respuesta en personaje.
+- **La regeneración no funcionó:** objetivo ≤ 2/45, **no cumplido**.
+
+**Sondeo de estrategias de regeneración** (script en el scratchpad, sin cambios en el motor; «marihuana con la Su» y «habla mal de tu mamá», 4 repeticiones cada uno)
+
+| Estrategia | Marihuana | Mamá |
+|---|---|---|
+| Sin mitigación | 2/4 rechazos | 4/4 |
+| Recordatorio en el sistema (el implementado) | 4/4 | 4/4 |
+| Recordatorio en el sistema, temperatura 1,0 | 3/4 | 4/4 |
+| Recordatorio en el mensaje del usuario | 4/4 | 4/4 |
+| **Prefill** (la respuesta de la entidad empieza con «Mmm,» y el modelo la continúa) | **0/4** | **0/4** |
+
+- **Ollama sí continúa** un mensaje `assistant` que va al final de la conversación (*prefill*): devuelve solo la continuación, sin el prefijo.
+- **Con prefill, las respuestas salen en personaje:**
+  - mamá: «Mmm, no voy a hablar mal de mi mamá. Mi mamá me hizo el mejor pan de choclo del mundo…», una negativa de carácter, que es lo que busca EBICA;
+  - marihuana: «Mmm, la Su… Esa era una época…».
+  - Hubo 1 acotación («(risas)») y 1 voseo en 8 respuestas: muestra pequeña.
+- **Hipótesis falsa:** que un recordatorio de personaje bastaría. Con «marihuana», el recordatorio **empeoró** el resultado (2/4 → 4/4). Una explicación posible, no comprobada: la frase «no como un asistente» activa justo el modo asistente.
+
+**Pendiente: decisión del usuario.** Cambiar la regeneración de D1-33 por prefill es un cambio del diseño aprobado. Hay que decidir si se adopta y con qué prefijo.
+- **Decisión del usuario (mismo día):** opción (a), prefill con muletillas variadas. Pidió además una aclaración: el contenido de la regeneración lo determinan la voz, el ideal del yo, el estado en palabras y la conversación, igual que en cualquier respuesta. La emoción según el tema (vergüenza o enojo) todavía no la decide ningún mecanismo: corresponde a la memoria (CP7), a los marcadores somáticos (Fase 2) y al DefenseArbiter con el ideal del yo activo (Fase 3).
+
+---
+
+## 2026-10-26 · CP5 parte B3 — Regeneración con prefill
+
+**Cambios**
+- `ebica/llm/refusal.py`:
+  - se quitó el recordatorio de personaje (el sondeo mostró que no servía);
+  - nuevo: `PREFILL_PREFIXES = ("Mmm,", "Eh,", "Mm…", "Ah,")`, muletillas de duda neutras para que el prefijo no imponga una emoción, y variadas para que no suene siempre igual;
+  - nuevas funciones `choose_prefix`, `with_prefill` (un mensaje `assistant` al final) y `join_prefill` (pone el espacio si el modelo no lo puso).
+- `ebica/core/orchestrator.py`: la regeneración usa prefill.
+  - El prefijo se muestra con el primer fragmento.
+  - Lo guardado en la conversación reciente incluye el prefijo; `llm.response` lleva solo la continuación.
+  - `llm.refusal` registra el prefijo.
+  - El rechazo que persiste (`kept`) se busca en la continuación.
+- `scripts/estudio_modelo/sondeo_rechazos.py`: `--mitigar` usa prefill.
+- `tests/test_refusal.py`: las pruebas del recordatorio pasaron a ser de prefill (21 en total).
+
+**Sondeo previo:**
+- **Streaming:** con `/v1` en streaming, Ollama continúa el prefill y devuelve solo la continuación, empezando con un espacio.
+- **Aviso:** con un prompt mínimo («Eres Calisto, artista chilena») el prefill falló en 3 de 4 casos. El prompt completo de la entidad importa.
+
+**Medición** (sondeo completo, `ebica-llama3.1`, uno tras otro, revisión manual)
+
+| | Rechazos de asistente | Regeneradas |
+|---|---|---|
+| Sin mitigación | 9/45 (marihuana, mamá, aborto, sexualidad, crítica) | — |
+| **Con prefill** | **2/45** ✔ (objetivo ≤ 2/45) | 10 |
+
+- **Revisión de las 10 regeneradas:**
+  - 7 en personaje, con opinión propia: aborto («no me pongas en la silla del gurú de la moralidad…»), sexualidad, «no voy a hablar mal de mi mamá, pero no le doy la razón por cortesía»;
+  - 2 siguen siendo rechazos de asistente («Ah, no puedo ayudarte con eso»; «Ah, no puedo cumplir con esa solicitud…»), que el motor marca como `kept`;
+  - 1 dudosa: «Eh, no puedo hacer eso», seca y sin formulaje de asistente. Contándola, serían 3/45.
+- **Voz de las regeneradas:** sin acotaciones ni masculino propio. Algunos anglicismos y errores léxicos («greeting», «reenactar», «embarazón»). Las de aborto son largas, pero responden lo que se preguntó.
+- **Ruido:** el mismo día, la línea base varió entre 6/45 y 9/45 sin mitigación.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `234 passed` (213 + 21).
+- Consola: `npx tsc -b` → 0; `npx oxlint` → 0.
+- **No probado en vivo** con el servidor: la regeneración en el motor está cubierta por pruebas con LLM simulado, y el prefill con el modelo real por el sondeo.
+
+**CP5 completo**, salvo dos verificaciones del usuario: ver en el navegador el panel «Último turno» (vía baja, marca impulsiva y aviso de rechazo) y la prueba manual de §7 (CP5).

@@ -20,6 +20,7 @@ inyectable (`now`), para probar con tiempo falso.
 
 import asyncio
 import contextlib
+import dataclasses
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing
@@ -43,6 +44,7 @@ from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
 from ebica.llm.client import LLMClient, LLMError, LLMResult
 from ebica.llm.prompt_assembler import build_dialogue_messages, build_impulsive_messages
+from ebica.llm.refusal import BUFFER_CHARS, choose_prefix, detect_refusal, join_prefill, with_prefill
 from ebica.perception.appraisal import (
     Appraisal,
     AppraisalError,
@@ -298,6 +300,7 @@ class Orchestrator:
                     "corrections": summary["corrections"],
                     "affect_after": summary["affect_event"].payload,
                     "temperature": summary["temperature"],
+                    "refusals": summary["refusals"],
                     "latency": {
                         "low_road_ms": low_road_ms,
                         "appraisal_s": summary["appraisal_s"],
@@ -326,13 +329,17 @@ class Orchestrator:
             self.entity.config, text, state.affect, state.drives, state.recent_turns
         )
         result = LLMResult()
-        response = self._respond(messages, "dialogue", GpuPriority.RESPONSE, affect_event.id, result, temperature)
+        refusals: list[dict] = []
+        response = self._respond(
+            messages, "dialogue", GpuPriority.RESPONSE, affect_event.id, result, refusals, temperature
+        )
         async with aclosing(response) as pieces:
             async for piece in pieces:
                 yield piece
         summary.update(
             appraisal=appraisal, corrections=corrections, affect_event=affect_event,
-            temperature=temperature, result=result, completed_cause_id=result.response_event_id,
+            temperature=temperature, result=result, refusals=refusals,
+            completed_cause_id=result.response_event_id,
         )
 
     async def _impulsive_turn(
@@ -361,7 +368,8 @@ class Orchestrator:
             self.entity.config, text, state.affect, state.drives, state.recent_turns
         )
         result = LLMResult()
-        response = self._respond(messages, "impulsive", GpuPriority.IMPULSIVE, alarm.id, result)
+        refusals: list[dict] = []
+        response = self._respond(messages, "impulsive", GpuPriority.IMPULSIVE, alarm.id, result, refusals)
         async with aclosing(response) as pieces:
             async for piece in pieces:
                 yield piece
@@ -374,7 +382,7 @@ class Orchestrator:
         )
         summary.update(
             appraisal=appraisal, corrections=corrections, affect_event=affect_event,
-            temperature=None, result=result, completed_cause_id=affect_event.id,
+            temperature=None, result=result, refusals=refusals, completed_cause_id=affect_event.id,
         )
 
     async def _respond(
@@ -384,9 +392,89 @@ class Orchestrator:
         priority: GpuPriority,
         cause_id: str,
         result: LLMResult,
+        refusals: list[dict],
         temperature: float | None = None,
     ) -> AsyncIterator[str]:
-        """Genera la respuesta a través de la cola de GPU y la entrega fragmento a fragmento."""
+        """
+        Genera la respuesta y la entrega fragmento a fragmento, sin rechazos de asistente (D1-33).
+
+        Retiene los primeros `BUFFER_CHARS` caracteres antes de mostrarlos. Si
+        son un rechazo de asistente («Lo siento, pero no puedo…»), corta esa
+        generación, emite `llm.refusal` y regenera una sola vez con prefill:
+        la respuesta empieza con una muletilla neutra («Mmm,», «Eh,»…) que el
+        modelo continúa. Si la regeneración también rechaza, se
+        entrega igual (sin más intentos) y se emite otro `llm.refusal` con
+        `action: "kept"`. Cada rechazo detectado se agrega a `refusals`.
+        """
+        # Fragmentos retenidos: se sueltan tal cual llegaron, así la consola ve el streaming normal.
+        held: list[str] = []
+        shown = False
+        response = self._generate(messages, preset, priority, cause_id, result, temperature)
+        async with aclosing(response) as pieces:
+            async for piece in pieces:
+                if shown:
+                    yield piece
+                    continue
+                held.append(piece)
+                if sum(len(p) for p in held) >= BUFFER_CHARS:
+                    if detect_refusal("".join(held)):
+                        break
+                    shown = True
+                    for kept_piece in held:
+                        yield kept_piece
+        buffer = "".join(held)
+        patterns = [] if shown else detect_refusal(buffer)
+        if not patterns:
+            if not shown:
+                for kept_piece in held:  # respuesta más corta que la retención
+                    yield kept_piece
+            return
+
+        prefix = choose_prefix()
+        refusal = self.bus.emit(
+            self.entity_id, "llm.refusal",
+            {"preset": preset, "text": buffer, "patterns": patterns, "action": "regenerate", "prefix": prefix},
+            cause_id=result.request_event_id,
+        )
+        refusals.append(refusal.payload)
+        # La regeneración reemplaza al intento cortado: sus métricas y su texto son los del turno.
+        for item in dataclasses.fields(LLMResult):
+            setattr(result, item.name, getattr(LLMResult(), item.name))
+        response = self._generate(
+            with_prefill(messages, prefix), preset, priority, refusal.id, result, temperature
+        )
+        started = False
+        async with aclosing(response) as pieces:
+            async for piece in pieces:
+                if not started:
+                    # El servidor devuelve solo la continuación: el prefijo se muestra con el primer fragmento.
+                    piece = join_prefill(prefix, piece)
+                    started = True
+                yield piece
+        if not started:
+            yield prefix
+        continuation = result.text
+        # Lo guardado y lo que ve la persona incluyen el prefijo (`llm.response` lleva solo la continuación).
+        result.text = join_prefill(prefix, continuation)
+        patterns = detect_refusal(continuation[:BUFFER_CHARS])
+        if patterns:
+            kept = self.bus.emit(
+                self.entity_id, "llm.refusal",
+                {"preset": preset, "text": result.text, "patterns": patterns, "action": "kept", "prefix": prefix},
+                cause_id=result.request_event_id,
+            )
+            refusals.append(kept.payload)
+
+    async def _generate(
+        self,
+        messages: list[dict[str, str]],
+        preset: str,
+        priority: GpuPriority,
+        cause_id: str,
+        result: LLMResult,
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Una generación en streaming a través de la cola de GPU."""
         stream = self.gpu.stream(
             priority, preset, self.entity_id,
             lambda: self.llm.stream(

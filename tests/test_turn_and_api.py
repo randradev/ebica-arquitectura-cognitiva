@@ -20,6 +20,7 @@ from ebica.core.orchestrator import Orchestrator
 from ebica.entities.manager import EntityConfigError, EntityManager
 from ebica.llm.client import LLMClient
 from ebica.llm.prompt_assembler import build_dialogue_messages
+from ebica.llm.refusal import BUFFER_CHARS
 
 CONFIG = {"id": "aurora", "name": "Aurora", "description": "Restauradora.", "persona": "Soy reservada."}
 
@@ -51,13 +52,16 @@ async def test_closing_turn_early_cancels_llm(tmp_path):
     bus = EventBus()
     manager = EntityManager(tmp_path, bus)
     entity = manager.create(EntityConfig(**CONFIG))
-    transport, _ = turn_transport("Ho", "la", "!")
+    # El primer fragmento supera la retención anti-rechazos (D1-33): se muestra
+    # de inmediato y el resto del streaming sigue pendiente al cerrar.
+    first = "Ho" + "o" * BUFFER_CHARS
+    transport, _ = turn_transport(first, "la", "!")
     async with LLMClient(bus, transport=transport) as llm:
         orchestrator = Orchestrator(entity, bus, manager.save_state, llm=llm)
         orchestrator.wake()
         queue = bus.subscribe()
         turn = orchestrator.user_turn("hola")
-        assert await anext(turn) == "Ho"
+        assert await anext(turn) == first
         await turn.aclose()
 
     types = [event.type for event in drain(queue)]

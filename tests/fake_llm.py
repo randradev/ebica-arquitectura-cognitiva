@@ -59,24 +59,36 @@ NEUTRAL_APPRAISAL = {
 }
 
 
-def turn_transport(*pieces: str, appraisal: dict | str = NEUTRAL_APPRAISAL):
+def turn_transport(
+    *pieces: str,
+    appraisal: dict | str = NEUTRAL_APPRAISAL,
+    replies: list[tuple[str, ...]] | None = None,
+):
     """
     Servidor LLM simulado para un turno completo (CP5): appraisal + diálogo.
 
     Si la petición pide salida estructurada (`response_format`), es el
     appraisal y responde `appraisal` (un dict, o un texto para simular JSON
-    roto); si no, responde el diálogo con `pieces`. Devuelve el transporte y
-    la lista donde se guardan los cuerpos recibidos, para inspeccionarlos.
+    roto); si no, responde el diálogo con `pieces`. Con `replies`, cada
+    llamada de diálogo usa la siguiente respuesta de la lista (la última se
+    repite), p. ej. un rechazo y luego la regeneración (CP5 B3). Devuelve el
+    transporte y la lista donde se guardan los cuerpos recibidos.
     """
     bodies: list[dict] = []
+    dialogue_calls = 0
 
     def handle(request: httpx.Request) -> httpx.Response:
         """Elige la respuesta según el tipo de llamada."""
+        nonlocal dialogue_calls
         body = json.loads(request.content)
         bodies.append(body)
         if "response_format" in body:
             text = appraisal if isinstance(appraisal, str) else json.dumps(appraisal)
             return httpx.Response(200, content=sse(text))
+        if replies:
+            reply = replies[min(dialogue_calls, len(replies) - 1)]
+            dialogue_calls += 1
+            return httpx.Response(200, content=sse(*reply))
         return httpx.Response(200, content=sse(*pieces))
 
     return httpx.MockTransport(handle), bodies
