@@ -1,5 +1,5 @@
 """
-Pruebas del turno con appraisal (Fase 1, CP5 parte A), con un LLM simulado.
+Pruebas del turno con appraisal (Fase 1, CP5 partes A y B2), con un LLM simulado.
 
 Cubren las fórmulas de D1-20/D1-23/D1-25 con números calculados a mano, el
 estado en palabras del prompt, la conversación reciente y la cadena de
@@ -14,6 +14,7 @@ from ebica.affect.appraisal_effects import (
     affect_impulse,
     apply_coherence_rules,
     dialogue_temperature,
+    discount_alarm,
     drive_relief,
 )
 from ebica.affect.vad import VAD
@@ -23,7 +24,13 @@ from ebica.core.state import ConversationTurn, EntityConfig
 from ebica.entities.manager import EntityManager
 from ebica.identity.traits import Traits, derive_parameters
 from ebica.llm.client import LLMClient
-from ebica.llm.prompt_assembler import FEELINGS_HEADER, build_dialogue_messages, describe_feelings
+from ebica.llm.prompt_assembler import (
+    FEELINGS_HEADER,
+    IMPULSIVE_INSTRUCTION,
+    build_dialogue_messages,
+    build_impulsive_messages,
+    describe_feelings,
+)
 from ebica.perception.appraisal import Appraisal
 
 CALISTO = Traits(O=0.95, C=0.30, E=0.85, A=0.40, N=0.75)
@@ -196,7 +203,7 @@ async def test_turn_event_chain(tmp_path):
     assert dialogue_request.cause_id == affect.id
     assert dialogue_response.cause_id == dialogue_request.id
     assert turn.cause_id == dialogue_response.id
-    assert set(turn.payload["latency"]) == {"appraisal_s", "first_token_s", "response_s", "total_s"}
+    assert set(turn.payload["latency"]) == {"low_road_ms", "appraisal_s", "first_token_s", "response_s", "total_s"}
 
 
 async def test_appraisal_request_uses_schema_and_profile(tmp_path):
@@ -272,3 +279,109 @@ async def test_recent_turns_enter_the_prompt_and_are_capped(tmp_path):
     assert roles.count("assistant") == RECENT_TURNS
     saved = EntityManager(tmp_path, EventBus()).load("prueba").state
     assert [turn.user for turn in saved.recent_turns] == [turn.user for turn in orchestrator.state.recent_turns]
+
+
+# ------------------------------------------------------------ vía baja y ruta impulsiva (CP5 B2)
+
+HOSTILE_REPLY = {**NEUTRAL_APPRAISAL, **{
+    "user_emotion": {"valence": -0.7, "arousal": 0.8, "dominance": 0.7},
+    "hostility": 0.9, "distress": 0.1, "goal_congruence": -0.8,
+}}
+
+
+def test_discount_alarm_only_touches_arousal():
+    """D1-30: el appraisal suma solo la alerta que exceda la alarma; valencia y dominancia intactas."""
+    impulse = affect_impulse(appraisal(**HOSTILE), VAD(), derive_parameters(CALISTO))
+    discounted = discount_alarm(impulse, 0.35)
+
+    assert impulse.arousal == pytest.approx(0.24)
+    assert discounted.arousal == 0.0
+    assert discount_alarm(impulse, 0.1).arousal == pytest.approx(0.14)
+    assert (discounted.valence, discounted.dominance) == (impulse.valence, impulse.dominance)
+
+
+def test_impulsive_prompt_is_minimal():
+    """D1-31: identidad, estado, la instrucción impulsiva y solo el último intercambio."""
+    config = EntityConfig(id="x", name="X", persona="Soy X.", ego_ideal=["No miento."])
+    turns = [ConversationTurn(user=f"u{i}", entity=f"e{i}", ts="2026-10-25T12:00:00Z") for i in range(3)]
+    messages = build_impulsive_messages(config, "idiota", VAD(arousal=0.9), {}, turns)
+
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert messages[1]["content"] == "u2" and messages[-1]["content"] == "idiota"
+    assert FEELINGS_HEADER in messages[0]["content"]
+    assert messages[0]["content"].endswith(IMPULSIVE_INSTRUCTION)
+
+
+async def test_hostile_message_takes_the_impulsive_route(tmp_path):
+    """Insulto dirigido → vía baja → alarma → respuesta `impulsive` → appraisal, encadenados por cause_id."""
+    orchestrator, before, events, bodies, pieces = await run_turn(
+        tmp_path, text="Eres una inútil.", appraisal_reply=HOSTILE_REPLY
+    )
+    by_type: dict[str, list] = {}
+    for event in events:
+        by_type.setdefault(event.type, []).append(event)
+
+    perception = by_type["perception.input"][0]
+    triggered = by_type["affect.low_road_triggered"][0]
+    alarm = next(e for e in by_type["affect.updated"] if e.payload["source"] == "low_road")
+    impulsive_request, appraisal_request = by_type["llm.request"]
+    completed = by_type["appraisal.completed"][0]
+    after_appraisal = next(e for e in by_type["affect.updated"] if e.payload["source"] == "appraisal")
+    turn = by_type["turn.completed"][0]
+
+    assert pieces == ["Ho", "la"]
+    assert triggered.cause_id == perception.id
+    assert triggered.payload["triggered"] and triggered.payload["score"] == pytest.approx(0.70)
+    assert alarm.cause_id == triggered.id
+    assert impulsive_request.cause_id == alarm.id
+    assert impulsive_request.payload["preset"] == "impulsive"
+    assert appraisal_request.cause_id == perception.id
+    assert after_appraisal.cause_id == completed.id
+    assert turn.cause_id == after_appraisal.id
+    assert turn.payload["impulsive"] is True and turn.payload["temperature"] is None
+    # El orden real de las llamadas: primero la respuesta impulsiva, después el appraisal.
+    impulsive_body, appraisal_body = bodies
+    assert "response_format" not in impulsive_body and "response_format" in appraisal_body
+    assert impulsive_body["temperature"] == 0.5 and impulsive_body["max_tokens"] == 120
+    assert IMPULSIVE_INSTRUCTION in impulsive_body["messages"][0]["content"]
+
+
+async def test_alarm_arousal_is_not_counted_twice(tmp_path):
+    """D1-30: alarma +0,35 y el appraisal no suma más alerta (0,24 < 0,35); la valencia la pone el appraisal."""
+    orchestrator, before, events, _, _ = await run_turn(
+        tmp_path, text="Eres una inútil.", appraisal_reply=HOSTILE_REPLY
+    )
+    after_appraisal = next(e for e in events if e.type == "affect.updated" and e.payload["source"] == "appraisal")
+
+    assert after_appraisal.payload["impulse"]["arousal"] == 0.0
+    assert after_appraisal.payload["alarm_arousal_discounted"] == pytest.approx(0.35)
+    assert orchestrator.state.affect.arousal == pytest.approx(min(1.0, before.affect.arousal + 0.35), abs=0.01)
+    assert orchestrator.state.affect.valence < before.affect.valence - 0.4
+
+
+async def test_same_insult_does_not_trigger_low_neuroticism(tmp_path):
+    """Con N 0.25 (θ_vb 0,725) el insulto solo (0,70) no dispara: turno normal, con la vía baja registrada."""
+    _, _, events, bodies, _ = await run_turn(
+        tmp_path, text="Eres una inútil.", appraisal_reply=HOSTILE_REPLY,
+        traits=CALISTO.model_copy(update={"N": 0.25}),
+    )
+    turn = next(e for e in events if e.type == "turn.completed")
+
+    assert "affect.low_road_triggered" not in [e.type for e in events]
+    assert turn.payload["impulsive"] is False
+    assert turn.payload["low_road"]["score"] == pytest.approx(0.70)
+    assert turn.payload["low_road"]["threshold"] == pytest.approx(0.725)
+    assert "response_format" in bodies[0]  # el appraisal va primero, como siempre
+
+
+async def test_invalid_appraisal_after_impulsive_response_does_not_break_the_turn(tmp_path):
+    """Si el appraisal posterior falla, la respuesta impulsiva ya se dio y el turno se completa."""
+    orchestrator, _, events, _, pieces = await run_turn(
+        tmp_path, text="Cállate, idiota.", appraisal_reply="esto no es json"
+    )
+    types = [event.type for event in events]
+
+    assert pieces == ["Ho", "la"]
+    assert "affect.low_road_triggered" in types and "appraisal.invalid" in types
+    assert "turn.completed" in types
+    assert len(orchestrator.state.recent_turns) == 1

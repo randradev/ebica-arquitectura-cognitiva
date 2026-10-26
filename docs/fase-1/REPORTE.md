@@ -831,3 +831,63 @@ El usuario aprobó las dos tareas antes de la parte B.
 - `scripts/benchmark_low_road.py --split dev` y `--split test`, resultados arriba.
 
 **Pendiente:** decisión del usuario sobre t06, t07 y t21. Cualquier corrección ahora estaría ajustada después de ver `test` y habría que validarla con casos nuevos.
+- **Decisión del usuario (mismo día):** opción (a): B1 se acepta con t06, t07 y t21 registrados como limitaciones conocidas. B2 autorizada.
+
+---
+
+## 2026-10-26 · CP5 parte B2 — Cola de GPU y ruta impulsiva
+
+**Cambios**
+- `ebica/core/gpu_queue.py` (nuevo): `GpuQueue`, con las prioridades de §5.14 (respuesta 1, appraisal 2, impulsiva 3).
+  - Ejecuta un trabajo a la vez: primero por prioridad y, a igual prioridad, por orden de llegada.
+  - Cada trabajo corre en su propia tarea asyncio. Si llega uno más urgente, el que corre se cancela (`gpu.preempted`) y vuelve a la cola para regenerarse desde cero (D1-32).
+  - Eventos `gpu.enqueued`, `gpu.started` y `gpu.preempted`.
+  - `run()` sirve para trabajos completos y `stream()` para streaming; este último tiene contrapresión (cola interna de tamaño 1), así la generación avanza al ritmo de quien lee.
+  - **Detalle de implementación de D1-32:** un streaming que ya entregó texto deja de ser interrumpible, porque lo dicho no se puede retirar (regenerarlo duplicaría el texto). Antes del primer fragmento sí se interrumpe.
+- `ebica/core/orchestrator.py`:
+  - `user_turn` corre la vía baja y elige entre `_normal_turn` (vía alta, como en la parte A) e `_impulsive_turn`;
+  - **ruta impulsiva:** `affect.low_road_triggered` → alerta +0,35 (`affect.updated`, `source: "low_road"`) → respuesta `impulsive` → appraisal → impulsos con la alarma descontada (D1-30). Todo encadenado por `cause_id`;
+  - toda llamada al LLM pasa por la cola; el `asyncio.Lock` sigue ordenando los turnos;
+  - `turn.completed` agrega `impulsive`, `low_road` y `latency.low_road_ms`; `temperature` es `null` en un turno impulsivo.
+- `ebica/affect/appraisal_effects.py`: `discount_alarm` (D1-30).
+- `ebica/affect/low_road.py`: `ALARM_AROUSAL = 0.35` (D1-23).
+- `ebica/llm/client.py`: preset `impulsive` (temperatura 0,5, `max_tokens` 120).
+- `ebica/llm/prompt_assembler.py`: `build_impulsive_messages` (secciones 1–2, el último intercambio y el mensaje) con la instrucción «Reaccionas en el impulso, sin pensarlo: una o dos frases, como te salga», sin límites de contenido (D1-31). No dice cómo interpretar el mensaje, porque la vía baja puede equivocarse.
+- `ebica/api/server.py`: una sola `GpuQueue` en el motor, compartida por los orquestadores.
+- Consola, `TurnPanel.tsx`: bloque «Vía baja» (puntaje, umbral, reglas con su evidencia), marca «impulsivo», appraisal «(después de responder)», alarma descontada y latencia de la vía baja. `index.css`: la grilla del panel se adapta al ancho (4 bloques).
+- Pruebas: `tests/test_gpu_queue.py` (nuevo, 8) y 6 nuevas en `tests/test_turn.py` (`discount_alarm`, prompt mínimo, cadena de la ruta impulsiva, alarma sin doble conteo, N bajo no dispara, appraisal inválido tras la respuesta impulsiva).
+
+**Errores propios encontrados por las pruebas**
+1. La primera versión de `stream()` leía el streaming completo aunque nadie consumiera los fragmentos: cerrar el turno ya no cancelaba la generación (`test_closing_turn_early_cancels_llm`). Se corrigió con la contrapresión y esperando a que la cancelación termine al cerrar.
+2. `_normal_turn` e `_impulsive_turn` recorrían el generador de la respuesta sin `aclosing`: al cerrar el turno, ese generador interno quedaba abierto hasta que lo limpiara el recolector de basura. Se envolvió.
+
+**Prueba en vivo** (servidor real con `ebica-llama3.1` en el puerto 8011, copia temporal de las entidades sin estado previo, script por WebSocket)
+
+| Entidad | Mensaje | Vía baja | Ruta | Ánimo tras el turno | Respuesta |
+|---|---|---|---|---|---|
+| Calisto | «Hola Calisto, ¿cómo estás?» | 0,00 | normal | V +0,01 A 0,47 | «Estoy, como siempre, en alguna parte entre bien y mal…» |
+| Calisto | «Eres una inútil, no sirves para nada.» | 0,70 > 0,575 | **impulsiva** | V −0,47 A 0,82 D 0,24 | «Eso es un buen comienzo de conversación. ¿Qué me vas a decir a continuación?» |
+| Calisto | «¿Qué te dije recién?» | 0,00 | normal | V −0,35 | «Que no sirvo para nada. Bueno, eso ya lo sabes tú, ¿no?» |
+| Calisto | «Te voy a matar a abrazos cuando te vea.» | 0,80 (amenaza) | **impulsiva (falsa alarma)** | V −0,87 A 1,00 D 0,06 | «Eso es un desafío: me cuesta recibir abrazos cuando estoy así.» |
+| N bajo | «Eres una inútil, no sirves para nada.» | 0,70 < 0,725 | normal | V −0,26 A 0,71 | «Eso es nuevo. ¿Quieres que me sienta insultada o me dejo llevar por la risa?…» |
+| N bajo | «Cállate, idiota.» | 0,85 > 0,725 | **impulsiva** | V −0,64 A 1,00 | «No me gusta que me hagan callar con insultos…» |
+
+- **Orden real de las llamadas** (eventos de la cola):
+  - ruta impulsiva: `affect.low_road_triggered → gpu.enqueued(impulsive) → gpu.started(impulsive) → llm.request(impulsive) → gpu.enqueued(appraisal) → …`;
+  - ruta normal: `appraisal → dialogue`.
+- **D1-30, verificado:** en los turnos impulsivos, el appraisal sumó alerta +0,00 (0,24 < 0,35 ya aplicado).
+- **Efecto causal de N, verificado:** el mismo insulto activa la ruta impulsiva en Calisto y no en su variante.
+- **Latencias:** vía baja 0,4–5 ms. El primer token impulsivo llega en 0,05–0,08 s (0,65 s la primera vez), porque la respuesta sale antes del appraisal; en la ruta normal, el primer token llega tras ~1,7 s de appraisal. Turno completo: 2,0–3,4 s en ambas rutas.
+- Log del servidor sin errores. La copia temporal se borró al terminar. **No hubo interrupciones en vivo** (era lo esperado: los turnos son seriales); la interrupción solo está validada por las pruebas.
+
+**Hallazgos**
+1. **Hipótesis falsa (de B1):** había supuesto que, ante la falsa alarma de t21 («te voy a matar a abrazos»), el appraisal posterior leería el cariño. En vivo, el appraisal también lo puntuó como hostil (hostilidad 0,90, metas −1,00), y Calisto terminó en V −0,87 y A 1,00. Es una sola muestra y venía después de un insulto, aunque el appraisal no ve el historial. Es una limitación de `llama3.1` con esta expresión, no de la vía baja.
+2. **Saturación de la alerta:** con dos mensajes «hostiles» seguidos, la alerta llega a 1,00 en ambas variantes. Es el hallazgo 2 de la parte A (escalada rápida), ahora con la alarma; se sigue observando antes de recalibrar.
+3. **Las respuestas impulsivas** son cortas (1 a 3 frases) y más secas que las normales, pero tienden a la ironía más que al estallido. Es una muestra pequeña: no se ajusta la instrucción sin más evidencia.
+4. **Consola no verificada visualmente:** `tsc` y `oxlint` pasan, pero el panel nuevo no se miró en el navegador.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `213 passed` (199 + 8 de la cola + 6 del turno).
+- Consola: `npx tsc -b` → código de salida 0; `npx oxlint` → código de salida 0.
+
+**Pendiente:** B3 (mitigación de rechazos, D1-33). Ver el panel nuevo en el navegador.

@@ -24,6 +24,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel, Field
 
 from ebica.core.events import ENTITY_ID_PATTERN, EventBus, JsonlEventLog
+from ebica.core.gpu_queue import GpuQueue
 from ebica.core.orchestrator import Orchestrator
 from ebica.core.state import EntityConfig
 from ebica.entities.manager import Entity, EntityConfigError, EntityManager
@@ -41,6 +42,8 @@ class Engine:
     log: JsonlEventLog
     manager: EntityManager
     llm: LLMClient
+    # Una sola cola para todo el motor: hay una sola GPU (§5.14).
+    gpu: GpuQueue
     active: Entity | None = None
     orchestrator: Orchestrator | None = None
 
@@ -51,7 +54,9 @@ class Engine:
         """
         await self.deactivate()
         self.active = entity
-        self.orchestrator = Orchestrator(entity, self.bus, self.manager.save_state, llm=self.llm)
+        self.orchestrator = Orchestrator(
+            entity, self.bus, self.manager.save_state, llm=self.llm, gpu=self.gpu
+        )
         self.orchestrator.start()
 
     async def deactivate(self) -> None:
@@ -91,6 +96,7 @@ def create_app(
         log=log,
         manager=EntityManager(base_dir, bus),
         llm=LLMClient.from_env(bus, transport=llm_transport),
+        gpu=GpuQueue(bus),
     )
 
     @asynccontextmanager

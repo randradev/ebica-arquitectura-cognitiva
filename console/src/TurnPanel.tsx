@@ -1,6 +1,14 @@
 import type { EngineEvent } from './types'
 
+interface LowRoadRule {
+  rule: string
+  signal: number
+  evidence: string
+}
+
 interface TurnPayload {
+  impulsive: boolean
+  low_road: { score: number; threshold: number; triggered: boolean; rules: LowRoadRule[] }
   appraisal: {
     user_emotion: { valence: number; arousal: number; dominance: number }
     user_intent: string
@@ -19,9 +27,17 @@ interface TurnPayload {
     impulse?: { valence_from_goals: number; valence_from_empathy: number; arousal: number; dominance: number }
     drive_relief?: Record<string, number>
     valence_from_drives?: number
+    alarm_arousal_discounted?: number
   }
-  temperature: number
-  latency: { appraisal_s: number; first_token_s: number | null; response_s: number | null; total_s: number }
+  // null en un turno impulsivo: el preset `impulsive` usa su temperatura fija.
+  temperature: number | null
+  latency: {
+    low_road_ms: number
+    appraisal_s: number
+    first_token_s: number | null
+    response_s: number | null
+    total_s: number
+  }
 }
 
 /** Número con signo y dos decimales (p. ej. "+0.12", "−0.42"). */
@@ -36,8 +52,10 @@ function seconds(value: number | null | undefined): string {
 }
 
 /**
- * Panel «último turno» (§8.3): qué evaluó el appraisal del último mensaje,
- * qué impulsos produjo, la temperatura de la respuesta y las latencias.
+ * Panel «último turno» (§8.3): la vía baja (puntaje, umbral y reglas), qué
+ * evaluó el appraisal del último mensaje, qué impulsos produjo, la
+ * temperatura de la respuesta y las latencias. Un turno impulsivo se marca:
+ * ahí la respuesta salió antes del appraisal.
  * Se arma con el evento `turn.completed` más reciente de la entidad activa.
  */
 export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeId: string | null }) {
@@ -49,10 +67,22 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
 
   return (
     <section className="turn-panel">
-      <h2>Último turno</h2>
+      <h2>Último turno{turn.impulsive && <span className="warning"> · impulsivo</span>}</h2>
       <div className="turn-grid">
         <div>
-          <h3>Appraisal</h3>
+          <h3>Vía baja</h3>
+          <p>
+            puntaje {turn.low_road.score.toFixed(2)} · umbral {turn.low_road.threshold.toFixed(3)} ·{' '}
+            {turn.low_road.triggered ? <span className="warning">disparada</span> : 'no disparada'}
+          </p>
+          {turn.low_road.rules.map((rule) => (
+            <p key={rule.rule} className="muted">
+              {rule.rule} {rule.signal.toFixed(2)} · «{rule.evidence}»
+            </p>
+          ))}
+        </div>
+        <div>
+          <h3>Appraisal{turn.impulsive && ' (después de responder)'}</h3>
           <p>
             hostilidad {a.hostility.toFixed(2)} · angustia {a.distress.toFixed(2)} · valencia ajena{' '}
             {signed(a.user_emotion.valence)}
@@ -75,6 +105,9 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
           <p>
             alerta {signed(effect.impulse?.arousal)} · dominancia {signed(effect.impulse?.dominance)}
           </p>
+          {effect.alarm_arousal_discounted ? (
+            <p className="muted">alarma de la vía baja: alerta +{effect.alarm_arousal_discounted.toFixed(2)} (ya descontada)</p>
+          ) : null}
           <p className="muted">
             alivio: social {effect.drive_relief?.social.toFixed(2) ?? '—'} · novedad{' '}
             {effect.drive_relief?.novelty.toFixed(2) ?? '—'}
@@ -82,11 +115,13 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
         </div>
         <div>
           <h3>Respuesta</h3>
-          <p>temperatura {turn.temperature.toFixed(2)}</p>
+          <p>{turn.temperature === null ? 'preset impulsive (0.50)' : `temperatura ${turn.temperature.toFixed(2)}`}</p>
           <p>
             appraisal {seconds(turn.latency.appraisal_s)} · primer token {seconds(turn.latency.first_token_s)}
           </p>
-          <p className="muted">turno completo {seconds(turn.latency.total_s)}</p>
+          <p className="muted">
+            vía baja {(turn.latency.low_road_ms ?? 0).toFixed(1)} ms · turno completo {seconds(turn.latency.total_s)}
+          </p>
         </div>
       </div>
     </section>

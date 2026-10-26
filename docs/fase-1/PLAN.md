@@ -383,7 +383,7 @@ Ya existe (parte A): el turno normal con appraisal, impulsos y drives; un `async
   - en `test`: falsas alarmas ≤ 5 % en los casos no hostiles y detección ≥ 70 % de la hostilidad abierta (D1-4);
   - el léxico se ajusta solo con `dev`; `test` se mide una vez.
 
-**B2 · Cola de GPU y ruta impulsiva**
+**B2 · Cola de GPU y ruta impulsiva** — *hecha (2026-10-26); prueba en vivo en `REPORTE.md`. Detalle de D1-32: un streaming que ya entregó texto no se interrumpe.*
 - `ebica/core/gpu_queue.py`: cola con prioridades de §5.14 (respuesta 1, appraisal 2, impulsiva 3; las demás llegan en Fase 2). Una tarea a la vez; con la misma prioridad, por orden de llegada. Si llega una de mayor prioridad, la tarea en curso se cancela (`gpu.preempted`) y vuelve a la cola para regenerarse (D4). Eventos `gpu.enqueued` y `gpu.started`.
 - Todas las llamadas del orquestador al LLM pasan por la cola. El `asyncio.Lock` de los turnos se mantiene: la cola ordena la GPU y el lock, los turnos.
 - **Ruta impulsiva** en `user_turn`:

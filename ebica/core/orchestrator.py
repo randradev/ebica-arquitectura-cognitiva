@@ -11,8 +11,10 @@ Al despertar (cargar), aplica el tiempo que estuvo descargada (D1-7).
 
 El turno del usuario (CP5, §6.2 sin las etapas de fases posteriores) también
 vive aquí: percepción → appraisal → impulsos y drives → prompt → respuesta.
-La API solo transporta. La cola de GPU y la vía baja llegan en CP5 parte B;
-la máquina de modos y el reloj simulado, en Fase 2. El reloj solo es
+La API solo transporta. Antes del appraisal corre la vía baja (CP5 B1–B2):
+si se dispara, la entidad responde en el impulso y el appraisal llega después.
+Toda llamada al LLM pasa por la cola de GPU. La máquina de modos y el reloj
+simulado llegan en Fase 2. El reloj solo es
 inyectable (`now`), para probar con tiempo falso.
 """
 
@@ -27,16 +29,20 @@ from ebica.affect.appraisal_effects import (
     affect_impulse,
     apply_coherence_rules,
     dialogue_temperature,
+    discount_alarm,
     drive_relief,
 )
 from ebica.affect.drives import DriveDynamics, advance_drives, crossed_thresholds, valence_coupling
+from ebica.affect.low_road import ALARM_AROUSAL, LowRoadResult
+from ebica.affect.low_road import evaluate as evaluate_low_road
 from ebica.affect.vad import VAD, AffectDynamics, apply_impulse, decay
 from ebica.core.events import Event, EventBus
+from ebica.core.gpu_queue import GpuPriority, GpuQueue
 from ebica.core.state import ConversationTurn, EntityState
 from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
 from ebica.llm.client import LLMClient, LLMError, LLMResult
-from ebica.llm.prompt_assembler import build_dialogue_messages
+from ebica.llm.prompt_assembler import build_dialogue_messages, build_impulsive_messages
 from ebica.perception.appraisal import (
     Appraisal,
     AppraisalError,
@@ -80,24 +86,28 @@ class Orchestrator:
         now: Callable[[], datetime] = _utc_now,
         tick_seconds: float = TICK_SECONDS,
         llm: LLMClient | None = None,
+        gpu: GpuQueue | None = None,
     ) -> None:
         """
         Prepara la dinámica con los parámetros que derivan de los rasgos.
 
         `save_state` persiste el estado (lo da el EntityManager); `llm` es
-        necesario para los turnos; `now` y `tick_seconds` se reemplazan en las pruebas.
+        necesario para los turnos; `gpu` es la cola compartida del motor (si
+        falta, se crea una propia); `now` y `tick_seconds` se reemplazan en las pruebas.
         """
         self.entity = entity
         self.bus = bus
         self.now = now
         self.tick_seconds = tick_seconds
         self.llm = llm
+        self.gpu = gpu or GpuQueue(bus)
         self._save_state = save_state
         self.parameters = derive_parameters(entity.config.traits)
         self.affect_dynamics = AffectDynamics.from_parameters(self.parameters)
         self.drive_dynamics = DriveDynamics.from_parameters(self.parameters)
         # Un turno a la vez: dos consolas escribiendo a la vez no deben
-        # intercalar sus appraisals. La cola de GPU (parte B) lo reemplaza.
+        # intercalar sus etapas. La cola de GPU ordena las llamadas al LLM;
+        # este lock ordena los turnos (D1-32).
         self._turn_lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
         self._ticks = 0
@@ -251,11 +261,10 @@ class Orchestrator:
         """
         Procesa un mensaje del usuario y entrega la respuesta fragmento a fragmento.
 
-        Etapas de §6.2 que existen en CP5: percepción → appraisal (con la regla
-        del sarcasmo) → impulsos afectivos y alivio de drives → prompt con el
-        estado en palabras y la conversación reciente → respuesta con la
-        temperatura del ánimo. Al terminar, guarda el intercambio y emite
-        `turn.completed` con el resumen para la consola. Cada evento se
+        Primero corre la vía baja (CPU, milisegundos). Si no se dispara, sigue
+        el turno normal de §6.2 (`_normal_turn`); si se dispara, la ruta
+        impulsiva (`_impulsive_turn`). Al terminar, guarda el intercambio y
+        emite `turn.completed` con el resumen para la consola. Cada evento se
         encadena por `cause_id` con el que lo provocó.
 
         Si quien consume deja de leer, cerrar este iterador cierra el streaming
@@ -266,43 +275,129 @@ class Orchestrator:
         async with self._turn_lock:
             started = time.perf_counter()
             perception = self.bus.emit(self.entity_id, "perception.input", {"text": text, "source": "user"})
-
-            appraisal, corrections, appraisal_event = await self._appraise(text, perception.id)
-            appraisal_s = time.perf_counter() - started
-            affect_event = self.apply_appraisal(appraisal, corrections, cause_id=appraisal_event.id)
-
-            state = self.state
-            temperature = dialogue_temperature(state.affect)
-            messages = build_dialogue_messages(
-                self.entity.config, text, state.affect, state.drives, state.recent_turns
-            )
-            result = LLMResult()
-            stream = self.llm.stream(
-                messages, entity_id=self.entity_id, preset="dialogue",
-                cause_id=affect_event.id, temperature=temperature, result=result,
-            )
-            async with aclosing(stream) as pieces:
+            low_road = evaluate_low_road(text, self.parameters.theta_low_road)
+            low_road_ms = (time.perf_counter() - started) * 1000
+            # Cada ruta deja aquí lo que `turn.completed` necesita.
+            summary: dict = {}
+            if low_road.triggered:
+                turn = self._impulsive_turn(text, perception.id, low_road, summary)
+            else:
+                turn = self._normal_turn(text, perception.id, summary)
+            async with aclosing(turn) as pieces:
                 async for piece in pieces:
                     yield piece
 
+            result: LLMResult = summary["result"]
             self._remember_turn(text, result.text)
             self.bus.emit(
                 self.entity_id, "turn.completed",
                 {
-                    "appraisal": appraisal.model_dump(),
-                    "corrections": corrections,
-                    "affect_after": affect_event.payload,
-                    "temperature": temperature,
+                    "impulsive": low_road.triggered,
+                    "low_road": low_road.as_dict(),
+                    "appraisal": summary["appraisal"].model_dump(),
+                    "corrections": summary["corrections"],
+                    "affect_after": summary["affect_event"].payload,
+                    "temperature": summary["temperature"],
                     "latency": {
-                        "appraisal_s": appraisal_s,
+                        "low_road_ms": low_road_ms,
+                        "appraisal_s": summary["appraisal_s"],
                         "first_token_s": result.first_token_s,
                         "response_s": result.total_s,
                         "total_s": time.perf_counter() - started,
                     },
                 },
-                cause_id=result.response_event_id,
+                cause_id=summary["completed_cause_id"],
             )
-            self._save_state(state)
+            self._save_state(self.state)
+
+    async def _normal_turn(self, text: str, perception_id: str, summary: dict) -> AsyncIterator[str]:
+        """
+        Vía alta (§6.2): appraisal (con la regla del sarcasmo) → impulsos y
+        alivio de drives → respuesta `dialogue` con la temperatura del ánimo.
+        """
+        appraisal_started = time.perf_counter()
+        appraisal, corrections, appraisal_event = await self._appraise(text, perception_id)
+        summary["appraisal_s"] = time.perf_counter() - appraisal_started
+        affect_event = self.apply_appraisal(appraisal, corrections, cause_id=appraisal_event.id)
+
+        state = self.state
+        temperature = dialogue_temperature(state.affect)
+        messages = build_dialogue_messages(
+            self.entity.config, text, state.affect, state.drives, state.recent_turns
+        )
+        result = LLMResult()
+        response = self._respond(messages, "dialogue", GpuPriority.RESPONSE, affect_event.id, result, temperature)
+        async with aclosing(response) as pieces:
+            async for piece in pieces:
+                yield piece
+        summary.update(
+            appraisal=appraisal, corrections=corrections, affect_event=affect_event,
+            temperature=temperature, result=result, completed_cause_id=result.response_event_id,
+        )
+
+    async def _impulsive_turn(
+        self, text: str, perception_id: str, low_road: LowRoadResult, summary: dict
+    ) -> AsyncIterator[str]:
+        """
+        Vía baja (§5.4; D1-22, D1-29 a D1-31): alarma → respuesta impulsiva → appraisal.
+
+        La alarma sube la alerta de inmediato (+0,35) y la entidad responde en
+        el impulso, con contexto mínimo. Después, dentro del mismo turno, corre
+        el appraisal: pone la valencia y suma solo la alerta que exceda la de
+        la alarma (D1-30). No genera otro mensaje: lo que la entidad haga con
+        su reacción se verá en el turno siguiente.
+        """
+        triggered = self.bus.emit(
+            self.entity_id, "affect.low_road_triggered", low_road.as_dict(), cause_id=perception_id
+        )
+        self.tick()
+        self.state.affect = apply_impulse(self.state.affect, arousal=ALARM_AROUSAL)
+        alarm = self._report_affect(
+            self.now(), "low_road", {"impulse": {"arousal": ALARM_AROUSAL}}, cause_id=triggered.id
+        )
+
+        state = self.state
+        messages = build_impulsive_messages(
+            self.entity.config, text, state.affect, state.drives, state.recent_turns
+        )
+        result = LLMResult()
+        response = self._respond(messages, "impulsive", GpuPriority.IMPULSIVE, alarm.id, result)
+        async with aclosing(response) as pieces:
+            async for piece in pieces:
+                yield piece
+
+        appraisal_started = time.perf_counter()
+        appraisal, corrections, appraisal_event = await self._appraise(text, perception_id)
+        summary["appraisal_s"] = time.perf_counter() - appraisal_started
+        affect_event = self.apply_appraisal(
+            appraisal, corrections, cause_id=appraisal_event.id, alarm_arousal=ALARM_AROUSAL
+        )
+        summary.update(
+            appraisal=appraisal, corrections=corrections, affect_event=affect_event,
+            temperature=None, result=result, completed_cause_id=affect_event.id,
+        )
+
+    async def _respond(
+        self,
+        messages: list[dict[str, str]],
+        preset: str,
+        priority: GpuPriority,
+        cause_id: str,
+        result: LLMResult,
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Genera la respuesta a través de la cola de GPU y la entrega fragmento a fragmento."""
+        stream = self.gpu.stream(
+            priority, preset, self.entity_id,
+            lambda: self.llm.stream(
+                messages, entity_id=self.entity_id, preset=preset,
+                cause_id=cause_id, temperature=temperature, result=result,
+            ),
+            cause_id=cause_id,
+        )
+        async with aclosing(stream) as pieces:
+            async for piece in pieces:
+                yield piece
 
     async def _appraise(self, text: str, cause_id: str) -> tuple[Appraisal, list[str], Event]:
         """
@@ -316,9 +411,13 @@ class Orchestrator:
         profile = config.appraisal_profile or config.description
         messages = build_appraisal_messages(config.name, profile, text)
         try:
-            result = await self.llm.complete(
-                messages, entity_id=self.entity_id, preset="appraisal", cause_id=cause_id,
-                response_schema=APPRAISAL_SCHEMA,
+            result = await self.gpu.run(
+                GpuPriority.APPRAISAL, "appraisal", self.entity_id,
+                lambda: self.llm.complete(
+                    messages, entity_id=self.entity_id, preset="appraisal", cause_id=cause_id,
+                    response_schema=APPRAISAL_SCHEMA,
+                ),
+                cause_id=cause_id,
             )
             appraisal = parse_appraisal(result.text)
         except (LLMError, AppraisalError) as error:
@@ -335,18 +434,25 @@ class Orchestrator:
         return appraisal, corrections, event
 
     def apply_appraisal(
-        self, appraisal: Appraisal, corrections: list[str] | None = None, cause_id: str | None = None
+        self,
+        appraisal: Appraisal,
+        corrections: list[str] | None = None,
+        cause_id: str | None = None,
+        alarm_arousal: float = 0.0,
     ) -> Event:
         """
         Aplica los efectos de un appraisal: impulso al VAD y alivio de drives (§6.2, etapa 3).
 
         El alivio de los drives produce placer por el acople de CP4 (−Σ w·Δe),
-        que se suma al impulso. Emite `affect.updated` (`source: "appraisal"`,
-        con el desglose) y `drive.updated`, y devuelve el primero.
+        que se suma al impulso. `alarm_arousal` es la alerta que ya sumó la vía
+        baja en este turno y se descuenta (D1-30). Emite `affect.updated`
+        (`source: "appraisal"`, con el desglose) y `drive.updated`, y devuelve el primero.
         """
         self.tick()
         state = self.state
         impulse = affect_impulse(appraisal, state.affect, self.parameters)
+        if alarm_arousal:
+            impulse = discount_alarm(impulse, alarm_arousal)
         relief = drive_relief(appraisal)
         before = state.drives
         after = {name: max(0.0, level - relief[name]) for name, level in before.items()}
@@ -367,6 +473,7 @@ class Orchestrator:
                 "impulse": impulse.as_dict(),
                 "drive_relief": relief,
                 "valence_from_drives": from_drives,
+                "alarm_arousal_discounted": alarm_arousal,
                 "corrections": corrections or [],
             },
             cause_id=cause_id,

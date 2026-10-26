@@ -125,6 +125,24 @@ def affect_impulse(appraisal: Appraisal, current: VAD, parameters: DerivedParame
     )
 
 
+def discount_alarm(impulse: AffectImpulse, alarm_arousal: float) -> AffectImpulse:
+    """
+    Descuenta del impulso del appraisal la alerta que ya sumó la vía baja (D1-30).
+
+    La alarma es una versión temprana de la misma reacción: el appraisal
+    posterior solo agrega la alerta que la exceda, max(0, alerta − alarma).
+    Sin esto, un insulto llevaría la alerta de Calisto de 0,47 a 1,0. La
+    valencia y la dominancia no cambian: la vía baja no las toca (D1-22).
+    """
+    return AffectImpulse(
+        valence=impulse.valence,
+        arousal=max(0.0, impulse.arousal - alarm_arousal),
+        dominance=impulse.dominance,
+        valence_from_goals=impulse.valence_from_goals,
+        valence_from_empathy=impulse.valence_from_empathy,
+    )
+
+
 def drive_relief(appraisal: Appraisal) -> dict[str, float]:
     """
     Cuánto baja cada drive con este mensaje (valores ≥ 0; §6.2, D1-23).

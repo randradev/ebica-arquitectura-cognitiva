@@ -48,11 +48,13 @@ class SamplingPreset:
     json_mode: bool = False
 
 
-# Presets de §5.13. Fase 0 solo define los dos que usa; `thought`,
-# `impulsive` y `consolidation` llegan con sus mecanismos (Fases 1–2).
+# Presets de §5.13. `thought` y `consolidation` llegan con sus mecanismos (Fase 2).
 PRESETS: dict[str, SamplingPreset] = {
     "dialogue": SamplingPreset("dialogue", temperature=0.7, max_tokens=400),
     "appraisal": SamplingPreset("appraisal", temperature=0.2, max_tokens=400, json_mode=True),
+    # Respuesta de la vía baja (Fase 1, CP5 B2, D1-31): corta y menos variable.
+    # El largo lo pide el prompt (una o dos frases); `max_tokens` solo es un tope.
+    "impulsive": SamplingPreset("impulsive", temperature=0.5, max_tokens=120),
 }
 
 

@@ -6,6 +6,8 @@ Secciones de Fase 1 hasta CP5:
 2. «Cómo me siento ahora»: el VAD y los drives traducidos a palabras (CP5).
 8. La conversación reciente, como mensajes alternados (CP5, D1-24).
 Los recuerdos (4–5), el PartnerModel (6) y «Cómo expresarme» (7) llegan en CP7–CP9.
+La respuesta impulsiva de la vía baja (CP5 B2) usa una versión mínima: 1, 2 y
+el último intercambio.
 
 El orden importa: lo estable (sección 1) va primero y el estado al final del
 prompt de sistema, para que la caché de prefijo de Ollama reutilice el inicio.
@@ -23,6 +25,13 @@ from ebica.core.state import ConversationTurn, EntityConfig
 EGO_IDEAL_HEADER = "Mis normas, lo que intento sostener:"
 # Encabezado de la sección 2.
 FEELINGS_HEADER = "Cómo me siento ahora:"
+# Instrucción de la respuesta impulsiva (D1-31): reacción inmediata y breve,
+# sin restricciones de contenido. No dice cómo interpretar el mensaje (la
+# vía baja puede equivocarse, p. ej. «te voy a matar a abrazos»): la
+# agitación ya va en «Cómo me siento ahora».
+IMPULSIVE_INSTRUCTION = "Reaccionas en el impulso, sin pensarlo: una o dos frases, como te salga."
+# CONSTANTE: intercambios recientes en el prompt impulsivo (D1-31: contexto mínimo).
+IMPULSIVE_RECENT_TURNS = 1
 
 # CONSTANTES: bandas de la valencia (límite superior, palabras). Se describen
 # con sustantivos ("ánimo bastante bajo") para no imponer género gramatical.
@@ -132,6 +141,31 @@ def build_dialogue_messages(
         system += f"\n\n{FEELINGS_HEADER}\n{describe_feelings(affect, drives or {})}"
     messages = [{"role": "system", "content": system}]
     for turn in recent_turns:
+        messages.append({"role": "user", "content": turn.user})
+        messages.append({"role": "assistant", "content": turn.entity})
+    messages.append({"role": "user", "content": user_text})
+    return messages
+
+
+def build_impulsive_messages(
+    config: EntityConfig,
+    user_text: str,
+    affect: VAD,
+    drives: dict[str, float] | None = None,
+    recent_turns: list[ConversationTurn] | tuple = (),
+) -> list[dict[str, str]]:
+    """
+    Arma los mensajes para el preset `impulsive` (vía baja, §5.4; D1-31).
+
+    Contexto mínimo: quién soy, cómo me siento (ya con la alarma aplicada),
+    la instrucción de responder en el impulso, el último intercambio y el
+    mensaje. Sin límites de contenido: el usuario revocó §13.2.
+    """
+    system = build_system_prompt(config)
+    system += f"\n\n{FEELINGS_HEADER}\n{describe_feelings(affect, drives or {})}"
+    system += f"\n\n{IMPULSIVE_INSTRUCTION}"
+    messages = [{"role": "system", "content": system}]
+    for turn in list(recent_turns)[-IMPULSIVE_RECENT_TURNS:]:
         messages.append({"role": "user", "content": turn.user})
         messages.append({"role": "assistant", "content": turn.entity})
     messages.append({"role": "user", "content": user_text})

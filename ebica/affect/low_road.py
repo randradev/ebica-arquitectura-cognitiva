@@ -26,6 +26,9 @@ import yaml
 
 # Archivo de datos versionado con el léxico, los patrones y los pesos (D1-4).
 LEXICON_PATH = Path(__file__).with_name("low_road.yaml")
+# CONSTANTE: impulso de alerta inmediato cuando se dispara la vía baja (D1-23).
+# Solo la alerta: la valencia la pone después el appraisal (D1-22).
+ALARM_AROUSAL = 0.35
 
 # Separa cláusulas: un insulto y su marcador de dirección deben estar en la misma.
 CLAUSE_SPLIT = re.compile(r"[,.;:!?¡¿\n]+")
