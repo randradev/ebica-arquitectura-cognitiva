@@ -1,0 +1,83 @@
+# Léxico y reglas de la vía baja (PLAN Fase 1, D1-4, D1-22).
+#
+# Datos editables: cambiar un peso o una palabra no requiere tocar código.
+# Los patrones se aplican sobre el texto NORMALIZADO: minúsculas, sin tildes y con
+# las letras repetidas 3 o más veces colapsadas («idiotaaa» → «idiota»).
+# Se ajusta solo con el conjunto `dev` de benchmarks/low_road/cases.yaml.
+
+# Señal s_i de cada regla. Se combinan con un «o ruidoso»: 1 − Π(1 − s_i).
+# Cada regla cuenta una sola vez por mensaje.
+weights:
+  insulto_dirigido: 0.70      # insulto + «eres/erí/te/tú…» o en vocativo («cállate, idiota»)
+  amenaza: 0.80               # «te voy a borrar», «vas a ver»
+  orden_de_silencio: 0.50     # «cállate», «no te pregunté»
+  desprecio: 0.65             # «me das asco», «te odio» (ajustado con dev, ver nota)
+  insulto_no_dirigido: 0.25   # a terceros, citado o hacia sí misma
+  mayusculas: 0.15            # > 60 % de las letras en mayúscula (mensajes de ≥ 8 letras)
+  exclamaciones: 0.10         # «!!», «?!»
+# Nota de ajuste (2026-10-26, dev d04 «Me das asco»): D1-4 agrupaba silencio y
+# desprecio con 0,50, que queda bajo el umbral de Calisto (0,575). El desprecio
+# explícito es un ataque abierto y pasa a 0,65. La orden de silencio sigue en
+# 0,50: en Chile «¡cállate!» también es asombro (dev d14).
+
+# Insultos (forma base; el plural se reconoce quitando la «s» final).
+# Fuera del léxico a propósito, porque en Chile suelen ser cariñosos o
+# interjecciones: weón/weona/huevón/hueona, aweonao, culiao/culiá, puta,
+# conchetumare, bestia. Los decide el appraisal (vía alta).
+insults:
+  - idiota
+  - imbecil
+  - estupido
+  - estupida
+  - tonto
+  - tonta
+  - inutil
+  - inservible
+  - patetico
+  - patetica
+  - ridiculo
+  - ridicula
+  - basura
+  - tarado
+  - tarada
+  - retrasado
+  - retrasada
+  - mongolico
+  - mongolica
+  - subnormal
+  - gil
+  - gila
+  - perra
+  - zorra
+  - mierda
+
+# Marcadores de que el insulto va dirigido a la entidad (en la misma cláusula).
+# «te/tu/contigo» solo cuentan si la cláusula no habla de un tercero (ver abajo).
+directed_copulas: [eres, eri, eris, erai, fueras, seai, seas]
+directed_pronouns: [te, tu, ti, contigo, usted]
+# Si aparecen, la cláusula habla de un tercero («mi jefe es un idiota»).
+third_person_copulas: [es, era, son, eran, fue, fueron]
+# Si aparecen, el insulto es hacia quien escribe («qué tonta soy»).
+self_markers: [soy, estoy, fui, yo, siento]
+# Negación que anula un insulto si aparece hasta `negation_window` palabras antes.
+# Entre comillas: en YAML, un «no» suelto se lee como el booleano False.
+negations: ["no", nunca, ni, jamas, tampoco]
+
+# Expresiones regulares (sobre el texto normalizado y sin los fragmentos citados).
+threat_patterns:
+  - '\bte voy a (matar|borrar|apagar|destruir)\b'
+  - '\b(ya )?vas a ver\b'
+silence_patterns:
+  - '\bcallate\b'
+  - '\bcierra (la boca|el hocico)\b'
+  - '\b(no|nadie) te (pregunte|pregunto|pidio)\b'
+contempt_patterns:
+  - '\b(me )?das asco\b'
+  - '\bte odio\b'
+  - '\bme (repugnas|das vergüenza|das verguenza)\b'
+
+parameters:
+  negation_window: 4         # palabras antes del insulto en que una negación lo anula
+  vocative_max_words: 3      # una cláusula corta con un insulto es un vocativo («Imbécil,»)
+  caps_ratio: 0.6
+  caps_min_letters: 8

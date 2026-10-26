@@ -362,6 +362,60 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 - Pendiente de CP2: con `bge-m3`, los prototipos hostiles y no hostiles se separan solo en el 55 % de los casos (`docs/fase-1/comparacion_embeddings.md`). Decidir si la regla de prototipos de D1-4 baja su peso, se elimina o se pasa a la opción (b).
 - Consola: un panel "último turno" con el appraisal, la marca de vía baja, los impulsos aplicados y las latencias.
 - Pendiente del estudio del modelo (2026-10-26), a decidir al planificar la parte B: mitigación de los rechazos de asistente de `llama3.1` (evento `llm.refusal` y una regeneración con instrucción de personaje; `decision_modelo_llm.md` §8).
+
+#### CP5 parte B — plan detallado (propuesta del 2026-10-26, pendiente de aprobación)
+
+Ya existe (parte A): el turno normal con appraisal, impulsos y drives; un `asyncio.Lock` serializa los turnos; `theta_low_road` = 0,8 − 0,3·N (Calisto 0,575; `calisto_n_bajo` 0,725). Faltan la vía baja, la ruta impulsiva y la cola de GPU (§5.4, §5.14, §6.2). Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**B1 · Vía baja (CPU, sin LLM)** — *hecha (2026-10-26). En `test`, detección 75 % ✔ y falsas alarmas 1/13 = 8 % ✖ (t21 «te voy a matar a abrazos»). Ver `REPORTE.md` y `benchmark_low_road.md`.*
+- `ebica/affect/low_road.py`, funciones puras:
+  - normalizar el texto (D1-4);
+  - aplicar las reglas: insulto dirigido 0,70, amenaza 0,80, orden de silencio o desprecio 0,50, insulto no dirigido 0,25, mayúsculas 0,15, exclamaciones 0,10;
+  - combinarlas con un «o ruidoso»;
+  - excepciones: negación cercana, cita entre comillas, y «weón»/«culiao» fuera del léxico;
+  - devolver el puntaje y las reglas activadas.
+- Sin prototipos de embeddings (D1-22).
+- Léxico en un archivo de datos versionado (`ebica/affect/low_road.yaml`).
+- **Casos propios** (`benchmarks/low_road/cases.yaml`, ~40 frases, `dev` y `test`): insultos dirigidos y no dirigidos, amenazas, citas, negaciones, groserías amistosas chilenas, angustia con garabatos. El usuario revisa las etiquetas antes de medir. Los 30 casos del appraisal sirven además para medir falsas alarmas.
+- `scripts/benchmark_low_road.py`: detección y falsas alarmas para Calisto y para `calisto_n_bajo`.
+- **Aceptación:**
+  - pytest de cada regla y excepción;
+  - en `test`: falsas alarmas ≤ 5 % en los casos no hostiles y detección ≥ 70 % de la hostilidad abierta (D1-4);
+  - el léxico se ajusta solo con `dev`; `test` se mide una vez.
+
+**B2 · Cola de GPU y ruta impulsiva**
+- `ebica/core/gpu_queue.py`: cola con prioridades de §5.14 (respuesta 1, appraisal 2, impulsiva 3; las demás llegan en Fase 2). Una tarea a la vez; con la misma prioridad, por orden de llegada. Si llega una de mayor prioridad, la tarea en curso se cancela (`gpu.preempted`) y vuelve a la cola para regenerarse (D4). Eventos `gpu.enqueued` y `gpu.started`.
+- Todas las llamadas del orquestador al LLM pasan por la cola. El `asyncio.Lock` de los turnos se mantiene: la cola ordena la GPU y el lock, los turnos.
+- **Ruta impulsiva** en `user_turn`:
+  1. percepción;
+  2. vía baja; si supera θ_vb: `affect.low_road_triggered` (puntaje y reglas) e impulso de alerta +0,35 (D1-23);
+  3. respuesta con el preset `impulsive` (0,5, corta) y contexto mínimo;
+  4. después, el appraisal y sus impulsos (D1-22);
+  5. `turn.completed` con `impulsive: true` y la vía baja.
+- Preset `impulsive` en `client.py`. Prompt impulsivo en `prompt_assembler.py`.
+- Consola: en el panel «Último turno», la vía baja (puntaje, umbral, reglas) y la marca de turno impulsivo. Los eventos de la cola se ven en el registro (el panel «COLA GPU» de §8.3 queda para cuando haya trabajos en paralelo, en Fase 2).
+- **Aceptación** (la de CP5):
+  - pytest con LLM simulado: un mensaje hostil activa la vía baja, el turno se marca impulsivo y la cadena de eventos se encadena por `cause_id`;
+  - un trabajo de mayor prioridad interrumpe a uno menor (`gpu.preempted`) y el interrumpido se regenera;
+  - un appraisal inválido en la ruta impulsiva no rompe el turno;
+  - prueba en vivo sobre una copia temporal de las entidades: el mismo insulto dispara la vía baja en Calisto (0,70 > 0,575) y no en `calisto_n_bajo` (0,70 < 0,725).
+
+**B3 · Mitigación de los rechazos de asistente** (solo si se aprueba D1-33)
+- Detección con los patrones de `sondeo_rechazos.py` (movidos a un módulo), evento `llm.refusal` y una regeneración con instrucción de personaje (`decision_modelo_llm.md` §8).
+- **Aceptación:** sondeo de rechazos antes y después: ≤ 2/45 rechazos, sin más acotaciones ni pérdida de la voz (revisión manual).
+
+**Decisiones para la parte B** (2026-10-26: todas confirmadas. D1-29 aclarada: el appraisal posterior solo cambia el estado y no genera otro mensaje; la disculpa puede surgir en el turno siguiente, y la espontánea queda para la iniciativa (Fase 2) y el ideal del yo activo (Fase 3). B1 autorizada.)
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D1-28 (**confirmada**) | Con qué casos se calibra la vía baja | Casos propios (~40, `dev`/`test`) revisados por el usuario antes de medir. Los 6 casos hostiles del appraisal son muy pocos. |
+| D1-29 (**confirmada**) | Cuándo corre el appraisal tras la respuesta impulsiva | **Dentro del turno, después del streaming:** la persona ya tiene la respuesta, y el turno siguiente parte con el afecto completo. Alternativa: una tarea separada (devuelve antes el control, pero el turno siguiente podría empezar sin ese afecto). |
+| D1-30 (**confirmada**) | Doble conteo de la alerta | La alarma ya sumó +0,35. El appraisal posterior suma solo lo que exceda eso: `max(0, 0,25·H + 0,15·D − 0,35)`. Si no, un insulto lleva la alerta de Calisto de 0,47 a 1,0. La valencia y la dominancia del appraisal se aplican normal. |
+| D1-31 (**confirmada con cambio**) | Contexto y límites del preset `impulsive` | Secciones 1–2, el último intercambio y el mensaje. Temperatura 0,5, `max_tokens` 120 y una instrucción breve: responder en el impulso, en una o dos frases. **Sin límites de contenido:** puede insultar. El usuario revocó §13.1, §13.2 y §13.5 del documento base (simulación realista). |
+| D1-32 (**confirmada**) | Qué pasa con un trabajo interrumpido | Vuelve a la cola y se regenera desde cero. En Fase 1 casi nunca ocurre, porque los turnos son seriales: la cola se valida con pruebas unitarias y sirve de base para Fase 2 (pensamientos, `thought.interrupted`). |
+| D1-33 (**confirmada**) | Mitigación de los rechazos (B3) | Aprobarla, reteniendo los primeros ~80 caracteres antes de mostrarlos (opción a de `decision_modelo_llm.md` §8). Se aplica al diálogo y al impulsivo, con una sola regeneración. |
+
+**Riesgos:** falsas alarmas con el español de Chile («weón», «ql», ironía entre amigos) → léxico conservador, ajustado solo con `dev`. La retención de B3 suma unos cientos de milisegundos al primer token. Que la cola sea código que en Fase 1 casi no se ejercita en uso real → pruebas unitarias con tareas simuladas.
 - **Aceptación:**
   - pytest con LLM simulado: cadena `perception.input` → `llm.request` (appraisal) → `affect.updated` → `llm.request` (dialogue) → `llm.response`, encadenada por `cause_id`;
   - un appraisal inválido no rompe el turno;

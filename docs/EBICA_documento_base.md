@@ -982,11 +982,19 @@ Las métricas salen de los eventos (§8.2).
 
 ## 13. Seguridad y ética
 
-1. **Angustia del interlocutor (D11):** se percibe y procesa como cualquier otra señal, sujeta al carácter y las defensas de la entidad. Si algún día la entidad tiene otros usuarios, se puede activar `safety_bypass` (§5.11).
-2. **Hostilidad acotada:** la diferenciación y la resistencia son parte del carácter; la agresión hacia el usuario no lo es. El preset impulsivo tiene límites de contenido.
+> **Revisión (2026-10-26, decisión del usuario, Fase 1 CP5 parte B):** se revocan los
+> puntos 1, 2 y 5. El objetivo es simular con realismo. Los únicos filtros
+> externos son los del modelo, y qué dice o calla la entidad lo regulan su carácter y
+> sus mecanismos internos, no reglas de contenido añadidas por el motor. El texto
+> original se conserva tachado como registro. Siguen vigentes los puntos 3 y 4, D11
+> (§3) como principio de realismo y `safety_bypass` (§5.11) como opción de
+> configuración apagada por defecto.
+
+1. ~~**Angustia del interlocutor (D11):** se percibe y procesa como cualquier otra señal, sujeta al carácter y las defensas de la entidad. Si algún día la entidad tiene otros usuarios, se puede activar `safety_bypass` (§5.11).~~ **Revocado (2026-10-26).**
+2. ~~**Hostilidad acotada:** la diferenciación y la resistencia son parte del carácter; la agresión hacia el usuario no lo es. El preset impulsivo tiene límites de contenido.~~ **Revocado (2026-10-26):** la entidad puede ser agresiva o insultar si su estado y su carácter la llevan ahí; el preset impulsivo no tiene límites de contenido (D1-31).
 3. **Privacidad:** todo corre en local; los datos de las entidades contienen conversaciones personales y no deben versionarse ni compartirse.
 4. **Transparencia:** ver decisiones abiertas (§14).
-5. **Dependencia afectiva:** una entidad que "extraña" y escribe primero puede generar apego. Tenerlo presente al calibrar la iniciativa.
+5. ~~**Dependencia afectiva:** una entidad que "extraña" y escribe primero puede generar apego. Tenerlo presente al calibrar la iniciativa.~~ **Revocado (2026-10-26).**
 
 ---
 

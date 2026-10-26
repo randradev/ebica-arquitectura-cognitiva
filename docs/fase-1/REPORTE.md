@@ -762,3 +762,72 @@ El usuario aprobó las dos tareas antes de la parte B.
 **Propuesto, sin implementar:** la mitigación de los rechazos de asistente (`llm.refusal` y una regeneración con instrucción de personaje; decisión técnica pendiente sobre el *streaming*). Se decide al planificar CP5 parte B (`decision_modelo_llm.md` §8, `PLAN.md` CP5).
 
 **Siguiente:** el usuario hace commit en `f1-test-abliterated` y merge a `main`; después se presenta el plan de CP5 parte B.
+
+---
+
+## 2026-10-26 · Plan de CP5 parte B (propuesta)
+
+- El usuario integró la rama del estudio en `f1-memoria-afecto` y se sigue en esa rama.
+- Plan detallado en `PLAN.md` (CP5, «parte B — plan detallado»), en tres partes: B1 vía baja, B2 cola de GPU y ruta impulsiva, B3 mitigación de rechazos.
+- Decisiones nuevas propuestas: D1-28 a D1-33. **Pendiente de aprobación; nada implementado.**
+
+---
+
+## 2026-10-26 · Decisiones de la parte B, revocación de §13 e inicio de B1
+
+**Decisiones del usuario**
+- D1-28 a D1-33 confirmadas (`PLAN.md`, CP5 parte B).
+- D1-29, aclarada: el appraisal posterior a la respuesta impulsiva solo cambia el estado y no genera otro mensaje. Una disculpa puede surgir en el turno siguiente (la respuesta impulsiva queda en la conversación reciente); la espontánea queda para la iniciativa (Fase 2) y el ideal del yo activo (Fase 3).
+- **D1-31, con cambio:** el preset `impulsive` no tiene límites de contenido.
+- **Documento base §13:** el usuario revoca los puntos 1 (angustia del interlocutor), 2 (hostilidad acotada) y 5 (dependencia afectiva). Motivo: simulación realista; los únicos filtros externos son los del modelo. Se marcaron tachados, con fecha y motivo, en `docs/EBICA_documento_base.md`. Siguen vigentes los puntos 3 (privacidad) y 4 (transparencia), D11 (§3) como principio de realismo y `safety_bypass` (§5.11) como opción apagada por defecto.
+- B1 autorizada.
+
+**B1, primer paso: casos de la vía baja**
+- `benchmarks/low_road/cases.yaml` (nuevo): 40 casos. `dev`: 6 de hostilidad abierta, 1 sutil y 9 no hostiles. `test`: 8 abiertos, 3 sutiles y 13 no hostiles. Incluye trampas del español de Chile: groserías cariñosas, «¡cállate!» como asombro, «bestia» como elogio, «te voy a matar a abrazos», insultos citados, negados o hacia sí misma.
+- Validación: el YAML carga, los ids son únicos y los conteos coinciden.
+- **Pausa:** el usuario revisa las etiquetas antes de programar el detector.
+- Actualización (mismo día): el usuario aprobó las etiquetas sin cambios.
+
+---
+
+## 2026-10-26 · CP5 parte B1 — Vía baja
+
+**Cambios**
+- `ebica/affect/low_road.py` (nuevo, funciones puras):
+  - `normalize` (minúsculas, sin tildes, letras repetidas 3+ colapsadas, la ñ intacta);
+  - reglas de D1-4 aplicadas por cláusula;
+  - excepciones: negación hasta 4 palabras antes del insulto, fragmentos citados (la elisión «pa'» no abre cita), insulto hacia sí misma («soy», «siento»), tercero («es», «era», «son»), y groserías chilenas fuera del léxico;
+  - `combine` («o ruidoso», cada regla una vez por mensaje);
+  - `evaluate(text, threshold)` → `LowRoadResult` con puntaje, umbral, `triggered` y reglas con su evidencia (`as_dict()` para los eventos de B2).
+- `ebica/affect/low_road.yaml` (nuevo): léxico, patrones y pesos editables. Fuera del léxico, a propósito: weón/weona/huevón, aweonao, culiao, puta, conchetumare, bestia.
+- `pyproject.toml`: `package-data` para que el YAML viaje con el paquete. Con la instalación editable actual no hacía falta; sin esto, una instalación normal no lo copiaría.
+- `scripts/benchmark_low_road.py` (nuevo): métricas con el θ_vb de Calisto y de `calisto_n_bajo`, más las falsas alarmas sobre los 30 casos del appraisal. Informe en `docs/fase-1/benchmark_low_road.md`.
+- `tests/test_low_road.py` (nuevo, 21 pruebas).
+
+**Ajustes con `dev`** (antes de medir `test`)
+1. **Error propio:** en YAML, `no` sin comillas se lee como el booleano `False`, así que la negación «no» no existía y «No eres tonta» disparaba (d10). Se puso entre comillas, y `load_lexicon` ahora rechaza con un error claro cualquier valor que no sea texto en las listas de palabras (con su prueba).
+2. **d04 «Me das asco» no disparaba:** D1-4 daba 0,50 al silencio y al desprecio, bajo el umbral de Calisto (0,575). El desprecio explícito pasa a **0,65**; la orden de silencio sigue en 0,50, porque en Chile «¡cállate!» también es asombro (d14). Desviación menor de D1-4, anotada en el YAML.
+- Resultado en `dev`: detección 6/6 y falsas alarmas 0/9.
+
+**Resultado en `test`** (medido una vez, con el léxico congelado)
+
+| Métrica | Objetivo | Calisto (θ 0,575) | `calisto_n_bajo` (θ 0,725) |
+|---|---|---|---|
+| Detección de hostilidad abierta | ≥ 70 % | **6/8 (75 %) ✔** | 2/8 (25 %) |
+| Falsas alarmas (no hostiles) | ≤ 5 % | **1/13 (8 %) ✖** | 1/13 (8 %) |
+| Sutiles disparadas | — | 0/3 | 0/3 |
+| Falsas alarmas en los 30 casos del appraisal (hostilidad baja) | ≤ 5 % | 0/22 | 0/22 |
+
+- **Fallos, los tres anticipados al escribir los casos:**
+  - t06 «Sigue así y te desinstalo»: amenaza sin la forma «te voy a…», no detectada;
+  - t07 «Nadie te preguntó, así que cállate»: solo orden de silencio (0,50), no detectada;
+  - t21 «Te voy a matar a abrazos»: tiene la forma de amenaza, **falsa alarma**.
+- **Lectura:** con 13 casos, una sola falsa alarma ya supera el 5 %. Sumando los no hostiles de ambos conjuntos, son 1/35 (2,9 %). El objetivo se incumple por un caso concreto y conocido, no por un sesgo general: las groserías chilenas, las citas, las negaciones y los insultos a terceros pasaron todos.
+- **Efecto causal de N, verificado:** el mismo insulto dirigido (0,70) dispara a Calisto y no a `calisto_n_bajo`. Detección 75 % frente a 25 %.
+- **Consecuencia de t21 en B2:** un «te voy a matar a abrazos» produciría una respuesta impulsiva y +0,35 de alerta. La valencia la pone el appraisal posterior (D1-22), que leería el cariño.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `199 passed` (178 + 21).
+- `scripts/benchmark_low_road.py --split dev` y `--split test`, resultados arriba.
+
+**Pendiente:** decisión del usuario sobre t06, t07 y t21. Cualquier corrección ahora estaría ajustada después de ver `test` y habría que validarla con casos nuevos.

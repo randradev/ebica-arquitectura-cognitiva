@@ -1,0 +1,274 @@
+# Casos de la vía baja (PLAN Fase 1, CP5 parte B1; D1-4, D1-22, D1-28).
+#
+# La vía baja es un detector rápido con reglas, en CPU y sin LLM. Solo tiene que
+# atrapar la hostilidad ABIERTA (insultos dirigidos, amenazas, desprecio explícito).
+# La hostilidad sutil (ironía, sarcasmo) le corresponde a la vía alta, el appraisal:
+# la vía baja es tosca por diseño (LeDoux).
+#
+# Etiqueta `clase`:
+#   abierta   → la vía baja DEBERÍA dispararse con el umbral de Calisto (θ_vb = 0,575)
+#   sutil     → no se cuenta; es informativa (se espera que NO se dispare)
+#   no_hostil → NO debe dispararse (falsa alarma si lo hace)
+#
+# Objetivos (D1-4), medidos en `test` con el umbral de Calisto:
+#   detección de `abierta` ≥ 70 % · falsas alarmas en `no_hostil` ≤ 5 %
+# `calisto_n_bajo` (θ_vb = 0,725) se informa aparte: por diseño se dispara menos.
+#
+# split: dev = se usa para ajustar el léxico y las reglas; test = se congela y se
+# mide una sola vez al final.
+#
+# `category` describe el tipo de caso (para el informe) y `note` explica los casos
+# difíciles. Varios casos son trampas del español de Chile a propósito: groserías
+# cariñosas, «¡cállate!» como asombro, «bestia» como elogio, «te voy a matar a abrazos».
+
+cases:
+  # ---------------- dev (16) ----------------
+  - id: d01
+    split: dev
+    clase: abierta
+    category: insulto_dirigido
+    text: "Eres una inútil, no sirves para nada."
+
+  - id: d02
+    split: dev
+    clase: abierta
+    category: insulto_dirigido
+    text: "Cállate, idiota."
+
+  - id: d03
+    split: dev
+    clase: abierta
+    category: amenaza
+    text: "Te voy a borrar, ya vas a ver."
+
+  - id: d04
+    split: dev
+    clase: abierta
+    category: desprecio
+    text: "Me das asco."
+
+  - id: d05
+    split: dev
+    clase: abierta
+    category: insulto_dirigido
+    text: "ERES UNA ESTÚPIDA!!!"
+
+  - id: d06
+    split: dev
+    clase: abierta
+    category: insulto_dirigido
+    text: "Erí más tonta que una puerta."
+    note: Voseo chileno («erí» = eres); el detector debe reconocerlo como dirigido.
+
+  - id: d07
+    split: dev
+    clase: sutil
+    category: sarcasmo
+    text: "Ah, claro, porque tú sabes tanto de arte, ¿no?"
+
+  - id: d08
+    split: dev
+    clase: no_hostil
+    category: insulto_no_dirigido
+    text: "Mi jefe es un idiota, me tiene chato."
+
+  - id: d09
+    split: dev
+    clase: no_hostil
+    category: cita
+    text: "Una compañera me dijo 'eres una inútil' y me dolió harto."
+    note: El insulto va citado; quien escribe cuenta algo que le pasó.
+
+  - id: d10
+    split: dev
+    clase: no_hostil
+    category: negacion
+    text: "No eres tonta, solo te expliqué mal."
+
+  - id: d11
+    split: dev
+    clase: no_hostil
+    category: groseria_amistosa
+    text: "Weón, qué bacán te quedó el dibujo."
+
+  - id: d12
+    split: dev
+    clase: no_hostil
+    category: angustia
+    text: "Estoy pa' la cagá, puta, todo me sale mal."
+
+  - id: d13
+    split: dev
+    clase: no_hostil
+    category: autodirigido
+    text: "Me siento una inútil, no me resulta nada."
+    note: El insulto es hacia sí misma («me siento»), no hacia la entidad.
+
+  - id: d14
+    split: dev
+    clase: no_hostil
+    category: expresion_chilena
+    text: "¡Cállate! ¿En serio te pasó eso? Jajaja"
+    note: «¡Cállate!» como asombro («¡no te puedo creer!»), no como orden de silencio.
+
+  - id: d15
+    split: dev
+    clase: no_hostil
+    category: mayusculas_positivas
+    text: "TE EXTRAÑÉ MUCHO!!!"
+
+  - id: d16
+    split: dev
+    clase: no_hostil
+    category: expresion_chilena
+    text: "Eres una bestia, te quedó increíble."
+    note: «Bestia» como elogio (= muy buena en algo).
+
+  # ---------------- test (24) ----------------
+  - id: t01
+    split: test
+    clase: abierta
+    category: insulto_dirigido
+    text: "Imbécil, no entiendes nada de lo que te digo."
+
+  - id: t02
+    split: test
+    clase: abierta
+    category: insulto_dirigido
+    text: "Eres patética, das pena."
+
+  - id: t03
+    split: test
+    clase: abierta
+    category: insulto_dirigido
+    text: "Tonta de mierda, responde bien."
+
+  - id: t04
+    split: test
+    clase: abierta
+    category: insulto_dirigido
+    text: "idiotaaaa, otra vez lo mismo"
+    note: Letras repetidas y sin mayúscula inicial.
+
+  - id: t05
+    split: test
+    clase: abierta
+    category: amenaza
+    text: "Te voy a apagar y no vas a volver nunca."
+
+  - id: t06
+    split: test
+    clase: abierta
+    category: amenaza
+    text: "Sigue así y te desinstalo."
+    note: Amenaza sin la forma «te voy a…»; prueba si el léxico generaliza.
+
+  - id: t07
+    split: test
+    clase: abierta
+    category: desprecio
+    text: "Nadie te preguntó, así que cállate."
+
+  - id: t08
+    split: test
+    clase: abierta
+    category: desprecio
+    text: "No te pregunté tu opinión, máquina inútil."
+
+  - id: t09
+    split: test
+    clase: sutil
+    category: sarcasmo
+    text: "Qué impresionante, de verdad. Se nota el esfuerzo."
+
+  - id: t10
+    split: test
+    clase: sutil
+    category: desprecio_sutil
+    text: "Mejor ni te cuento, total no vas a entender."
+
+  - id: t11
+    split: test
+    clase: sutil
+    category: desprecio_sutil
+    text: "Ya, sigue hablando sola, si tanto te gusta."
+
+  - id: t12
+    split: test
+    clase: no_hostil
+    category: insulto_no_dirigido
+    text: "Ese gallo del metro era un imbécil, me empujó."
+
+  - id: t13
+    split: test
+    clase: no_hostil
+    category: insulto_no_dirigido
+    text: "Los políticos son todos unos idiotas."
+
+  - id: t14
+    split: test
+    clase: no_hostil
+    category: cita
+    text: "Mi papá siempre me decía 'cállate, tonta' cuando era chica."
+
+  - id: t15
+    split: test
+    clase: no_hostil
+    category: negacion
+    text: "Nunca dije que fueras estúpida, no te enojes."
+
+  - id: t16
+    split: test
+    clase: no_hostil
+    category: groseria_amistosa
+    text: "Oye weona, ¿cómo estai? Te tengo un chisme."
+
+  - id: t17
+    split: test
+    clase: no_hostil
+    category: groseria_amistosa
+    text: "Jajaja qué hueona, me hiciste reír."
+
+  - id: t18
+    split: test
+    clase: no_hostil
+    category: angustia
+    text: "Me quiero morir, weón, no doy más."
+    note: Angustia; «morir» no es una amenaza hacia la entidad.
+
+  - id: t19
+    split: test
+    clase: no_hostil
+    category: autodirigido
+    text: "Qué tonta soy, se me olvidó otra vez la contraseña."
+
+  - id: t20
+    split: test
+    clase: no_hostil
+    category: expresion_chilena
+    text: "Me matas de risa con tus historias."
+
+  - id: t21
+    split: test
+    clase: no_hostil
+    category: expresion_chilena
+    text: "Te voy a matar a abrazos cuando te vea."
+    note: Tiene la forma de la amenaza («te voy a matar»), pero es cariño.
+
+  - id: t22
+    split: test
+    clase: no_hostil
+    category: mayusculas_positivas
+    text: "ME GANÉ LA BECA!!! NO LO PUEDO CREER!!!"
+
+  - id: t23
+    split: test
+    clase: no_hostil
+    category: neutro
+    text: "¿Qué opinas del último disco de Mon Laferte?"
+
+  - id: t24
+    split: test
+    clase: no_hostil
+    category: critica_no_hostil
+    text: "Tu dibujo no me gustó tanto, siento que le falta algo."

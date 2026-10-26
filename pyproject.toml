@@ -36,6 +36,10 @@ embeddings = [
 [tool.setuptools.packages.find]
 include = ["ebica*"]
 
+# Datos que viajan con el paquete: el léxico de la vía baja (Fase 1, CP5 B1).
+[tool.setuptools.package-data]
+"ebica.affect" = ["*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Los tests asíncronos se ejecutan sin decorar cada uno (el motor es asyncio, D3).
