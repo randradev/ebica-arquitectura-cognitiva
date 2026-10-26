@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **En curso:** decisión del modelo LLM (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`); después, CP5 parte B.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). La mitigación de los rechazos de asistente está propuesta y pendiente de aprobación. **Siguiente:** CP5 parte B.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -361,6 +361,7 @@ entrada en `REPORTE.md` y una pausa. Las pruebas que requieren Ollama o Neo4j ll
 - Mitigaciones pendientes del benchmark de CP1 (se deciden contigo al empezar CP5): formato `json_schema` o `json_object` para el appraisal; regla de coherencia para el sarcasmo con superficie positiva (hostilidad alta con valencia positiva); el sesgo hacia la hostilidad en los mensajes mixtos; y volver a medir t19 (pregunta sobre ser IA) con el perfil real de la entidad.
 - Pendiente de CP2: con `bge-m3`, los prototipos hostiles y no hostiles se separan solo en el 55 % de los casos (`docs/fase-1/comparacion_embeddings.md`). Decidir si la regla de prototipos de D1-4 baja su peso, se elimina o se pasa a la opción (b).
 - Consola: un panel "último turno" con el appraisal, la marca de vía baja, los impulsos aplicados y las latencias.
+- Pendiente del estudio del modelo (2026-10-26), a decidir al planificar la parte B: mitigación de los rechazos de asistente de `llama3.1` (evento `llm.refusal` y una regeneración con instrucción de personaje; `decision_modelo_llm.md` §8).
 - **Aceptación:**
   - pytest con LLM simulado: cadena `perception.input` → `llm.request` (appraisal) → `affect.updated` → `llm.request` (dialogue) → `llm.response`, encadenada por `cause_id`;
   - un appraisal inválido no rompe el turno;

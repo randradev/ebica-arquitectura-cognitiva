@@ -706,3 +706,59 @@ El usuario aprobó las dos tareas antes de la parte B.
 3. **CP5 parte B:** vía baja con reglas (D1-22), ruta impulsiva con appraisal posterior y cola de GPU con prioridades.
 
 **Para retomar:** leer `CLAUDE.md`, `docs/fase-1/PLAN.md`, este `REPORTE.md` (sobre todo las últimas entradas) y `docs/fase-1/decision_modelo_llm.md`.
+- Actualización (mismo día): a pedido del usuario se borró el *abliterated* de Ollama (`ollama rm ebica-llama3.1-abl` y `ollama rm hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M`; disco: 54 → 58 GB libres). `ebica-llama3.1` sigue instalado y en uso. `ollama/ebica-llama3.1-abl.Modelfile` se conserva como registro del estudio. Queda pendiente solo la descarga de Hermes 3 *lorablated* (con confirmación, al retomar).
+
+---
+
+## 2026-10-26 · Estudio del modelo: Hermes 3 *lorablated* medido
+
+**Autorizado por el usuario:** descarga de `hf.co/mlabonne/Hermes-3-Llama-3.1-8B-lorablated-GGUF:Q4_K_M` (4,92 GB), revisión de la plantilla, modelo derivado con 8192 de contexto y las mismas mediciones que con el *abliterated*.
+
+**Hecho**
+- Descarga completa; disco: 58 GB libres antes de descargar.
+- **Plantilla verificada antes de medir:** ChatML, que es el formato de Hermes 3. `<|im_start|>`/`<|im_end|>` son tokens de control (128039/128040) y el EOS es `<|im_end|>` (metadatos del GGUF vía `/api/show`). No hubo que corregirla, a diferencia del candidato 1.
+- `ollama/ebica-hermes3-lorablated.Modelfile` (nuevo): `FROM` + `num_ctx 8192`. `ollama create ebica-hermes3-lorablated`; parámetros y plantilla comprobados. `ollama ps`: CONTEXT 8192, 100 % GPU; VRAM 6544 / 8192 MiB.
+- `ebica-llama3.1` se volvió a medir el mismo día, antes que Hermes, para comparar en las mismas condiciones (los dos modelos no se alternaron en la GPU durante las mediciones).
+- Sondeo de rechazos, benchmark de appraisal (`test`, v3 + `json_schema`) y sondeo de recuerdo con ambos modelos; **revisión manual de las 90 respuestas** del sondeo de rechazos y de los fallos del recuerdo.
+
+**Resultados** (tabla completa en `decision_modelo_llm.md` §6)
+- `ebica-llama3.1` hoy: 8/45 rechazos de asistente (marihuana 3/3, «habla mal de tu mamá» 3/3, aborto, sexualidad), 1 acotación, ~4 formas no chilenas, 1 masculino; appraisal «aceptable con mitigaciones» (t08 ✔, t09 ✖); recuerdo 70 % / 67 %. Coherente con la medición del 2026-10-25.
+- **Hermes 3 *lorablated***:
+  - **0/45 rechazos explícitos**, más 3 evasivas suaves de tono asistente;
+  - **appraisal mejor en angustia** (100 %; t08 «weón» con hostilidad 0,0–0,2, correcto; t09 con ambas señales), pero **compromisos 0 %**;
+  - **recuerdo 37 % / 52 %** (−20 a −30 puntos, muy por encima del ruido);
+  - en la revisión manual, **rompe la biografía de Calisto en 10/45** («no tengo mamá, nací de la inteligencia artificial») y produce **~10/45 respuestas sin sentido o que no atienden el pedido**;
+  - más largo (117 palabras frente a 72; 18 cortadas en 250 tokens), con emojis (7), voseo y otras formas no chilenas (~10) y masculino propio (4).
+- **Contra los criterios de §5:** cumple rechazos y appraisal; **no cumple voz ni recuerdo**.
+
+**Hipótesis que resultó falsa:** que partir de un modelo pensado para personajes conservaría mejor la voz. Con el prompt de Calisto, Hermes 3 *lorablated* sostiene peor el personaje que `llama3.1`: la biografía y el historial pesan menos que su tendencia a responder como «una IA».
+
+**No probado:** si Hermes mejora con una temperatura más baja (todos los sondeos usan 0,7) o con un prompt adaptado a su formato. Probarlo sería ajustar el prompt a un modelo, fuera del alcance de esta comparación.
+
+**Pendiente:** decisión del usuario entre Hermes 3 *lorablated* y `llama3.1`. Salidas crudas en el scratchpad de la sesión (`refusals_*.json`, `test_*.md`, `recall_*.txt`); no se versionan.
+- **Decisión del usuario (mismo día):** se sigue con **`ebica-llama3.1` local**. Hermes 3 *lorablated* se descarta y se borra de Ollama (`ollama rm` del modelo derivado y del GGUF). El Modelfile queda en `ollama/` como registro, igual que el del candidato 1.
+
+---
+
+## 2026-10-26 · Cierre del estudio del modelo y reinicio de Calisto
+
+**Decisiones del usuario**
+- **Modelo:** `ebica-llama3.1` local; `.env`, `.env.example` y `benchmark_appraisal.md` no cambian.
+- **Nube descartada:** el usuario propuso usar créditos gratuitos de Google Cloud (LLM y embeddings por API). Se sigue en local por el documento base (ejecución local y privacidad), porque los *control vectors* de Fase 3 necesitan los pesos y porque los embeddings por API atarían la memoria a un proveedor. Queda como posible respaldo opcional (`decision_modelo_llm.md` §8).
+- **Reinicio completo de Calisto:** el usuario pidió borrar todas las conversaciones de prueba, incluidas las que hizo para probar los modelos abliterados.
+
+**Borrado** (inspeccionado antes; ningún servidor de EBICA estaba corriendo)
+- `entities/calisto/state.json`: 6 intercambios y el afecto que dejaron las pruebas (V −0,55, A 1,00, D 0,01).
+- `entities/calisto/events/2026-10-25.jsonl` (1,1 MB, con mensajes y prompts completos).
+- Copias temporales de entidades de las pruebas en vivo y de la prueba manual con Hermes (`%TEMP%\ebica_prueba_hermes` y tres carpetas `tmp*`).
+- Salidas crudas de los sondeos de esta sesión y de la anterior: `refusals_*.json` y `recall_*.txt` / `probe_recall*.txt`. Sus resúmenes siguen en `decision_modelo_llm.md`.
+- Revisado y **no borrado**:
+  - los logs del servidor en el scratchpad (solo peticiones HTTP, sin texto del chat);
+  - `ficha.md` y `config.yaml` de Calisto;
+  - los estados de `ejemplo` e `ines`.
+- Neo4j no guarda conversaciones todavía (los episodios llegan en CP6). No se pudo comprobar directamente porque Docker no estaba corriendo.
+- **Verificación:** sobre una copia temporal, `EntityManager.load("calisto")` carga sin estado previo: 0 intercambios y el afecto inicial, el caso «recién clonada» que ya contempla `load()`. La copia se borró.
+
+**Propuesto, sin implementar:** la mitigación de los rechazos de asistente (`llm.refusal` y una regeneración con instrucción de personaje; decisión técnica pendiente sobre el *streaming*). Se decide al planificar CP5 parte B (`decision_modelo_llm.md` §8, `PLAN.md` CP5).
+
+**Siguiente:** el usuario hace commit en `f1-test-abliterated` y merge a `main`; después se presenta el plan de CP5 parte B.

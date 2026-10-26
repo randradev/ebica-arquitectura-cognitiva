@@ -1,0 +1,18 @@
+# Candidato 2 del estudio del modelo LLM (docs/fase-1/decision_modelo_llm.md §5).
+# Hermes 3 (Nous Research, reentrenamiento de Llama 3.1 8B) con la abliteración
+# aplicada como LoRA ("lorablated"), GGUF Q4_K_M de mlabonne (4,92 GB).
+#
+# Descargar y crear (desde la raíz del repositorio):
+#     ollama pull hf.co/mlabonne/Hermes-3-Llama-3.1-8B-lorablated-GGUF:Q4_K_M
+#     ollama create ebica-hermes3-lorablated -f ollama/ebica-hermes3-lorablated.Modelfile
+#
+# Plantilla: el GGUF trae ChatML (<|im_start|> / <|im_end|>), que es el formato con
+# el que se entrenó Hermes 3. Verificado el 2026-10-26: ambos marcadores son tokens
+# de control del vocabulario (128039 y 128040) y el EOS es <|im_end|>. Se hereda
+# tal cual; a diferencia del candidato 1, no hay que corregirla.
+
+FROM hf.co/mlabonne/Hermes-3-Llama-3.1-8B-lorablated-GGUF:Q4_K_M
+
+# Contexto de 8192 tokens, igual que ebica-llama3.1 (D1-2): el endpoint /v1 no
+# permite fijarlo por petición y Ollama usa 4096 por defecto.
+PARAMETER num_ctx 8192
