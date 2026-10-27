@@ -17,7 +17,7 @@ def main() -> None:
     """Carga la configuración local y lanza uvicorn con la fábrica de la aplicación."""
     load_dotenv()
     uvicorn.run(
-        "ebica.api.server:create_app",
+        "ebica.api.server:create_app_from_env",
         factory=True,
         host="127.0.0.1",
         port=int(os.environ.get("EBICA_API_PORT", DEFAULT_PORT)),

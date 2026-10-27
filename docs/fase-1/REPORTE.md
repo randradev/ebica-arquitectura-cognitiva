@@ -1194,3 +1194,60 @@ El usuario aprobó las dos tareas antes de la parte B.
   - la semilla real de Calisto (63 + 6) se importa completa en una entidad de prueba.
 - Tras las pruebas, Neo4j no contiene ningún nodo: la limpieza funciona y la memoria real de Calisto sigue vacía, como se espera antes de la parte C.
 - **No probado todavía:** tiempos con `bge-m3` real (las pruebas usan el embedder simulado) y la escritura desde el turno. Ambas son de la parte C.
+
+---
+
+## 2026-10-27 · CP6 parte C — Memoria conectada al turno y al servidor
+
+El usuario hizo commit de las partes A (`d52e743`) y B (`b40e1dd`) antes de esta entrada.
+
+**Cambios**
+- `ebica/core/orchestrator.py`: el `Orchestrator` recibe un `MemoryWriter` opcional. Tras la respuesta (y, en la ruta impulsiva, tras el appraisal posterior), dentro del lock del turno y antes de `turn.completed`, `_write_memory` escribe el episodio con el ánimo tras el turno (D1-37).
+  - Emite `memory.written` o, ante cualquier fallo, `memory.write_failed`; el turno sigue igual.
+  - Cadena: `… → memory.written → turn.completed`.
+  - `turn.completed` agrega `memory` (lo escrito, el error, o `null` sin memoria) y `latency.memory_s`.
+- `ebica/api/server.py`:
+  - `create_app_from_env()` (la usa `python -m ebica.api`): al arrancar, `load_memory_from_env` conecta a Neo4j, carga `bge-m3` y aplica el esquema. Si falla, `MemoryUnavailableError` y el servidor **no arranca** (D1-38). Con `EBICA_MEMORY=off` arranca sin memoria, con un aviso en el log;
+  - `create_app()` sin argumentos no carga memoria (las pruebas siguen sin Neo4j ni `torch`) y acepta una memoria inyectada;
+  - `Engine.activate` importa la semilla **antes** de cambiar de entidad y emite `memory.seed_imported`. Si falla, `POST /load` responde 503 y la entidad anterior sigue activa;
+  - al apagar se cierra solo la memoria cargada por el propio servidor.
+- `ebica/api/__main__.py`: usa `create_app_from_env`.
+- `.env.example`: `EBICA_MEMORY` documentada.
+- `console/src/TurnPanel.tsx`: línea de memoria en «Respuesta»: «episodio guardado · importancia · temas · ms», el error en amarillo o «memoria desactivada».
+- Pruebas:
+  - `tests/test_turn.py`: 3 nuevas (cadena y argumentos de la escritura, fallo que no rompe el turno, ruta impulsiva) y la de la cadena actualizada (`memory_s` y `memory: null` sin memoria);
+  - `tests/test_turn_and_api.py`: 5 nuevas (la carga importa la semilla, 503 sin cambiar la entidad activa, `create_app` no carga memoria, `EBICA_MEMORY=off`, un fallo de memoria impide arrancar).
+
+**Error propio encontrado por las pruebas:** el servidor cerraba al apagar cualquier memoria, incluida una inyectada que no era suya (`AttributeError` con la memoria simulada). Con una real, habría cerrado una conexión ajena. Ahora solo cierra la que cargó él.
+
+**Prueba en vivo** (servidor real en el puerto 8011, copia temporal de la config de Calisto con id `prueba-cp6`, `bge-m3` real, Neo4j real, `ebica-llama3.1`)
+- **Arranque con memoria:** 9,0 s en total, de los cuales 3,2 s son la carga de `bge-m3`. El log muestra un aviso de una petición a HuggingFace Hub al cargar: el modelo consulta la red (pendiente registrado en CP2 sobre la carga sin conexión).
+- **Primera carga de la entidad:** 10,3 s. Se crearon 69 nodos (63 hechos y 6 episodios); los embeddings tomaron 9,8 s y la escritura 0,34 s. **Segunda carga:** 0,07 s, 69 sin cambios.
+- **Tres turnos:**
+
+| Mensaje | Ruta | Importancia | Temas | Memoria (embedding + escritura) | Primer token |
+|---|---|---|---|---|---|
+| «Hola Calisto, ¿cómo estás hoy?» | normal | 0,36 | salud | 0,33 s (202 + 106 ms) | 0,38 s |
+| «Adopté un perro, se llama Toby…» | normal | **0,00** | perro, adoptar | 0,50 s (358 + 116 ms) | 0,16 s |
+| «Eres una inútil, no sirves para nada.» | impulsiva | 0,90 | desprecio | 0,25 s (226 + 22 ms) | 0,10 s |
+
+- **En Neo4j:**
+  - 6 episodios de la semilla y 3 de diálogo, 9 huellas, 63 hechos, 1 `Self` y 4 temas;
+  - una sola cadena `NEXT`: `ep-almuerzo-gloria → … → ep-origen → (3 turnos)`;
+  - embeddings de 1024 dimensiones, `route: impulsive` en el insulto, 0 relaciones con otras entidades.
+- **Búsqueda vectorial con `bge-m3` real:** «¿Cómo está tu quiltro Toby?» → el episodio de Toby primero (0,79); «¿Te acuerdas del accidente en la Alameda?» → `ep-origen` primero (0,83).
+- **Limpieza:** servidor detenido; nodos de `prueba-cp6` borrados (el grafo quedó con 0 nodos); carpeta temporal borrada (tenía `state.json` y el JSONL del día). `entities/` sin cambios.
+
+**Hallazgos**
+1. **Hipótesis falsa:** estimé ~0,1–0,2 s por turno para escribir la memoria; lo medido es 0,25–0,50 s, casi todo en el embedding: el texto del episodio es más largo que un mensaje y los temas nuevos van en el mismo lote. No retrasa el primer token (se escribe después de responder), pero sí `turn.completed` y el inicio del turno siguiente.
+2. **La importancia de D1-36 deja en 0 una confidencia personal:** el appraisal puntuó «Adopté un perro, se llama Toby» con autorrelevancia, metas e intensidad en 0, y el saludo quedó por encima (0,36). Es justo el tipo de dato que el usuario querrá que Calisto recuerde. Con la recuperación de CP7, la similitud lo encontró igual (prueba anterior), pero el peso de la importancia lo penalizará. **Pendiente para el plan de CP7:** revisar la fórmula (por ejemplo, un piso para la información nueva sobre el interlocutor, o usar `novelty`).
+3. **La primera carga de una entidad tarda ~10 s** por los embeddings de la semilla en CPU. Ocurre una sola vez por entidad (y al editar la semilla, solo para lo cambiado).
+4. **Consola no verificada visualmente:** `tsc` y `oxlint` pasan; la línea de memoria no se miró en el navegador.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `264 passed` (256 + 8).
+- Consola: `npx tsc -b` → 0; `npx oxlint` → 0.
+
+**Estado de la memoria real:** Neo4j está vacío. La semilla de Calisto se importará la próxima vez que se cargue con el servidor (~10 s la primera vez) y desde entonces cada turno queda guardado. Desde ahora el servidor **necesita Docker con `ebica-neo4j` levantado**, salvo con `EBICA_MEMORY=off`.
+
+**CP6 completo**, salvo la verificación visual del usuario (la línea de memoria en «Último turno» y el grafo en Neo4j Browser).

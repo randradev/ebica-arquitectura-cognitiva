@@ -24,6 +24,7 @@ from ebica.core.state import ConversationTurn, EntityConfig
 from ebica.entities.manager import EntityManager
 from ebica.identity.traits import Traits, derive_parameters
 from ebica.llm.client import LLMClient
+from ebica.memory.episodes import WrittenEpisode
 from ebica.llm.prompt_assembler import (
     FEELINGS_HEADER,
     IMPULSIVE_INSTRUCTION,
@@ -161,7 +162,9 @@ def test_dialogue_messages_order_and_stable_prefix():
 # ------------------------------------------------------------ turno completo
 
 
-async def run_turn(tmp_path, text="hola", appraisal_reply=NEUTRAL_APPRAISAL, turns=1, traits=CALISTO):
+async def run_turn(
+    tmp_path, text="hola", appraisal_reply=NEUTRAL_APPRAISAL, turns=1, traits=CALISTO, memory=None
+):
     """Crea una entidad, la despierta y procesa `turns` mensajes; devuelve lo necesario para revisar."""
     bus = EventBus()
     manager = EntityManager(tmp_path, bus)
@@ -171,7 +174,7 @@ async def run_turn(tmp_path, text="hola", appraisal_reply=NEUTRAL_APPRAISAL, tur
     ))
     transport, bodies = turn_transport("Ho", "la", appraisal=appraisal_reply)
     async with LLMClient(bus, transport=transport) as llm:
-        orchestrator = Orchestrator(entity, bus, manager.save_state, llm=llm)
+        orchestrator = Orchestrator(entity, bus, manager.save_state, llm=llm, memory=memory)
         orchestrator.wake()
         queue = bus.subscribe()
         before = entity.state.model_copy(deep=True)
@@ -203,7 +206,12 @@ async def test_turn_event_chain(tmp_path):
     assert dialogue_request.cause_id == affect.id
     assert dialogue_response.cause_id == dialogue_request.id
     assert turn.cause_id == dialogue_response.id
-    assert set(turn.payload["latency"]) == {"low_road_ms", "appraisal_s", "first_token_s", "response_s", "total_s"}
+    assert set(turn.payload["latency"]) == {
+        "low_road_ms", "appraisal_s", "first_token_s", "response_s", "memory_s", "total_s"
+    }
+    # Sin memoria (pruebas, EBICA_MEMORY=off) no se escribe nada y el turno lo dice.
+    assert turn.payload["memory"] is None and turn.payload["latency"]["memory_s"] is None
+    assert "memory.written" not in by_type
 
 
 async def test_appraisal_request_uses_schema_and_profile(tmp_path):
@@ -385,3 +393,80 @@ async def test_invalid_appraisal_after_impulsive_response_does_not_break_the_tur
     assert "affect.low_road_triggered" in types and "appraisal.invalid" in types
     assert "turn.completed" in types
     assert len(orchestrator.state.recent_turns) == 1
+
+
+# ------------------------------------------------------------ memoria (CP6 C)
+
+
+class FakeMemory:
+    """Hace las veces de `MemoryWriter`: registra los turnos o falla a pedido."""
+
+    def __init__(self, fail: bool = False) -> None:
+        """`fail=True` simula que Neo4j no responde."""
+        self.fail = fail
+        self.calls: list[dict] = []
+
+    async def write_turn(self, entity_id, **values):
+        """Registra el turno y devuelve un episodio escrito, o lanza un error."""
+        self.calls.append({"entity_id": entity_id, **values})
+        if self.fail:
+            raise ConnectionError("Neo4j no responde")
+        return WrittenEpisode(
+            episode_id="ep-1", trace_id="tr-1", importance=0.2, topics=["perro"], new_topics=["perro"],
+            previous_episode_id=None, embed_ms=80.0, write_ms=10.0,
+        )
+
+
+def events_by_type(events) -> dict[str, list]:
+    """Agrupa los eventos por tipo, en orden."""
+    grouped: dict[str, list] = {}
+    for event in events:
+        grouped.setdefault(event.type, []).append(event)
+    return grouped
+
+
+async def test_turn_is_written_to_memory_after_the_response(tmp_path):
+    """D1-37: … → llm.response → memory.written → turn.completed, con el ánimo tras el turno."""
+    memory = FakeMemory()
+    orchestrator, _, events, _, pieces = await run_turn(tmp_path, memory=memory)
+    by_type = events_by_type(events)
+    dialogue_response = by_type["llm.response"][-1]
+    written = by_type["memory.written"][0]
+    turn = by_type["turn.completed"][0]
+
+    assert pieces == ["Ho", "la"]
+    [call] = memory.calls
+    assert call["entity_id"] == "prueba" and call["user_text"] == "hola 0" and call["entity_text"] == "Hola"
+    assert call["affect"] == orchestrator.state.affect and call["impulsive"] is False
+    assert written.cause_id == dialogue_response.id
+    assert turn.cause_id == written.id
+    assert turn.payload["memory"]["episode_id"] == "ep-1"
+    assert turn.payload["latency"]["memory_s"] is not None
+
+
+async def test_memory_failure_does_not_break_the_turn(tmp_path):
+    """Si Neo4j falla, el turno se entrega y se guarda igual; queda `memory.write_failed`."""
+    orchestrator, _, events, _, pieces = await run_turn(tmp_path, memory=FakeMemory(fail=True))
+    by_type = events_by_type(events)
+    failed = by_type["memory.write_failed"][0]
+    turn = by_type["turn.completed"][0]
+
+    assert pieces == ["Ho", "la"]
+    assert "ConnectionError: Neo4j no responde" in failed.payload["error"]
+    assert turn.cause_id == failed.id and turn.payload["memory"] == failed.payload
+    assert orchestrator.state.recent_turns[-1].entity == "Hola"
+
+
+async def test_impulsive_turn_is_written_too(tmp_path):
+    """La ruta impulsiva también deja su episodio, después del appraisal posterior."""
+    memory = FakeMemory()
+    _, _, events, _, _ = await run_turn(
+        tmp_path, text="Eres una inútil.", appraisal_reply=HOSTILE_REPLY, memory=memory
+    )
+    by_type = events_by_type(events)
+    after_appraisal = next(e for e in by_type["affect.updated"] if e.payload["source"] == "appraisal")
+
+    assert memory.calls[0]["impulsive"] is True
+    assert memory.calls[0]["appraisal"].hostility == pytest.approx(HOSTILE_REPLY["hostility"])
+    assert by_type["memory.written"][0].cause_id == after_appraisal.id
+    assert by_type["turn.completed"][0].cause_id == by_type["memory.written"][0].id

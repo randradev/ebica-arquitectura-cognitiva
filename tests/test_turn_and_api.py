@@ -21,6 +21,7 @@ from ebica.entities.manager import EntityConfigError, EntityManager
 from ebica.llm.client import LLMClient
 from ebica.llm.prompt_assembler import build_dialogue_messages
 from ebica.llm.refusal import BUFFER_CHARS
+from ebica.memory.episodes import SeedImportReport
 
 CONFIG = {"id": "aurora", "name": "Aurora", "description": "Restauradora.", "persona": "Soy reservada."}
 
@@ -249,3 +250,102 @@ def test_conversation_endpoint_returns_saved_turns(client):
 
     assert data["entity_id"] == "aurora"
     assert [(turn["user"], turn["entity"]) for turn in data["turns"]] == [("hola", "Hola")]
+
+
+# ------------------------------------------------------------ memoria (CP6 C)
+
+
+class FakeSeedMemory:
+    """Hace las veces de `MemoryWriter` en la API: registra las importaciones o falla a pedido."""
+
+    def __init__(self, fail: bool = False) -> None:
+        """`fail=True` simula que Neo4j no responde."""
+        self.fail = fail
+        self.imported: list[str] = []
+
+    async def import_seed(self, entity_id, name, biography):
+        """Registra la importación y devuelve un reporte vacío, o lanza un error."""
+        if self.fail:
+            raise ConnectionError("Neo4j no responde")
+        self.imported.append(entity_id)
+        return SeedImportReport(created=["f-1"])
+
+
+def memory_client(tmp_path, memory):
+    """Cliente con una memoria simulada inyectada."""
+    transport, _ = turn_transport("Ho", "la")
+    return TestClient(create_app(entities_dir=tmp_path, llm_transport=transport, memory=memory))
+
+
+def test_loading_an_entity_imports_its_seed(tmp_path):
+    """Al cargar una entidad se importa su semilla y se emite `memory.seed_imported`."""
+    memory = FakeSeedMemory()
+    with memory_client(tmp_path, memory) as client:
+        client.post("/api/entities", json=CONFIG)
+        assert client.post("/api/entities/aurora/load").status_code == 200
+
+    assert memory.imported == ["aurora"]
+    log = "".join(path.read_text(encoding="utf-8") for path in (tmp_path / "aurora" / "events").glob("*.jsonl"))
+    assert '"type": "memory.seed_imported"' in log or '"type":"memory.seed_imported"' in log
+
+
+def test_seed_import_failure_answers_503_and_keeps_the_active_entity(tmp_path):
+    """Si Neo4j falla al cargar, la API responde 503 y la entidad anterior sigue activa."""
+    memory = FakeSeedMemory()
+    with memory_client(tmp_path, memory) as client:
+        client.post("/api/entities", json=CONFIG)
+        client.post("/api/entities", json={**CONFIG, "id": "bruna", "name": "Bruna"})
+        client.post("/api/entities/aurora/load")
+        memory.fail = True
+
+        response = client.post("/api/entities/bruna/load")
+
+        assert response.status_code == 503 and "Neo4j no responde" in response.json()["detail"]
+        assert client.get("/api/entities").json()["active"] == "aurora"
+
+
+def test_server_without_memory_does_not_load_it(tmp_path, monkeypatch):
+    """`create_app` sin `load_memory` no intenta conectar a Neo4j ni cargar bge-m3 (las pruebas siguen livianas)."""
+    import ebica.api.server as server
+
+    async def forbidden():
+        """Falla si alguien intenta cargar la memoria."""
+        raise AssertionError("no debía cargarse la memoria")
+
+    monkeypatch.setattr(server, "load_memory_from_env", forbidden)
+    with memory_client(tmp_path, None) as client:
+        assert client.get("/api/entities").status_code == 200
+
+
+def test_memory_off_skips_loading(tmp_path, monkeypatch):
+    """D1-38: con `load_memory` y `EBICA_MEMORY=off`, el servidor arranca sin memoria."""
+    import ebica.api.server as server
+
+    async def forbidden():
+        """Falla si alguien intenta cargar la memoria."""
+        raise AssertionError("no debía cargarse la memoria")
+
+    monkeypatch.setattr(server, "load_memory_from_env", forbidden)
+    monkeypatch.setenv("EBICA_MEMORY", "off")
+    transport, _ = turn_transport("Ho", "la")
+    app = create_app(entities_dir=tmp_path, llm_transport=transport, load_memory=True)
+    with TestClient(app) as client:
+        assert client.get("/api/entities").status_code == 200
+    assert app.state.engine.memory is None
+
+
+def test_memory_load_failure_stops_startup(tmp_path, monkeypatch):
+    """D1-38: si la memoria no puede prepararse, el servidor no arranca."""
+    import ebica.api.server as server
+
+    async def broken():
+        """Simula Neo4j caído."""
+        raise server.MemoryUnavailableError("Neo4j no disponible")
+
+    monkeypatch.setattr(server, "load_memory_from_env", broken)
+    monkeypatch.delenv("EBICA_MEMORY", raising=False)
+    transport, _ = turn_transport("Ho", "la")
+    app = create_app(entities_dir=tmp_path, llm_transport=transport, load_memory=True)
+    with pytest.raises(server.MemoryUnavailableError):
+        with TestClient(app):
+            pass

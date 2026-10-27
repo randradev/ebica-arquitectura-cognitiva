@@ -33,13 +33,45 @@ interface TurnPayload {
   refusals?: { preset: string; text: string; action: 'regenerate' | 'kept' }[]
   // null en un turno impulsivo: el preset `impulsive` usa su temperatura fija.
   temperature: number | null
+  // Memoria (CP6): lo escrito, el error, o null si el servidor corre sin memoria.
+  // Ausente en los turnos anteriores a CP6.
+  memory?: WrittenMemory | { error: string } | null
   latency: {
     low_road_ms: number
     appraisal_s: number
     first_token_s: number | null
     response_s: number | null
+    memory_s?: number | null
     total_s: number
   }
+}
+
+interface WrittenMemory {
+  episode_id: string
+  importance: number
+  topics: string[]
+  new_topics: string[]
+  embed_ms: number
+  write_ms: number
+}
+
+/** Línea de memoria del turno: episodio guardado, error o memoria desactivada. */
+function MemoryLine({ memory }: { memory: TurnPayload['memory'] }) {
+  if (memory === undefined) return null
+  if (memory === null) return <p className="muted">memoria desactivada: el turno no se guardó</p>
+  if ('error' in memory) {
+    return (
+      <p className="warning" title={memory.error}>
+        memoria: el episodio no se guardó
+      </p>
+    )
+  }
+  return (
+    <p className="muted" title={memory.episode_id}>
+      memoria: episodio guardado · importancia {memory.importance.toFixed(2)} · temas{' '}
+      {memory.topics.join(', ') || '—'} · {(memory.embed_ms + memory.write_ms).toFixed(0)} ms
+    </p>
+  )
 }
 
 /** Número con signo y dos decimales (p. ej. "+0.12", "−0.42"). */
@@ -126,6 +158,7 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
               {refusal.action === 'regenerate' ? 'rechazo de asistente descartado y regenerado' : 'rechazo de asistente entregado (sin más intentos)'}
             </p>
           ))}
+          <MemoryLine memory={turn.memory} />
           <p className="muted">
             vía baja {(turn.latency.low_road_ms ?? 0).toFixed(1)} ms · turno completo {seconds(turn.latency.total_s)}
           </p>

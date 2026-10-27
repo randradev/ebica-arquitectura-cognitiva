@@ -13,7 +13,8 @@ El turno del usuario (CP5, §6.2 sin las etapas de fases posteriores) también
 vive aquí: percepción → appraisal → impulsos y drives → prompt → respuesta.
 La API solo transporta. Antes del appraisal corre la vía baja (CP5 B1–B2):
 si se dispara, la entidad responde en el impulso y el appraisal llega después.
-Toda llamada al LLM pasa por la cola de GPU. La máquina de modos y el reloj
+Toda llamada al LLM pasa por la cola de GPU. Tras responder, el turno se
+escribe en la memoria episódica (CP6, D1-37). La máquina de modos y el reloj
 simulado llegan en Fase 2. El reloj solo es
 inyectable (`now`), para probar con tiempo falso.
 """
@@ -45,6 +46,7 @@ from ebica.identity.traits import derive_parameters
 from ebica.llm.client import LLMClient, LLMError, LLMResult
 from ebica.llm.prompt_assembler import build_dialogue_messages, build_impulsive_messages
 from ebica.llm.refusal import BUFFER_CHARS, choose_prefix, detect_refusal, join_prefill, with_prefill
+from ebica.memory.episodes import MemoryWriter
 from ebica.perception.appraisal import (
     Appraisal,
     AppraisalError,
@@ -89,13 +91,16 @@ class Orchestrator:
         tick_seconds: float = TICK_SECONDS,
         llm: LLMClient | None = None,
         gpu: GpuQueue | None = None,
+        memory: MemoryWriter | None = None,
     ) -> None:
         """
         Prepara la dinámica con los parámetros que derivan de los rasgos.
 
         `save_state` persiste el estado (lo da el EntityManager); `llm` es
         necesario para los turnos; `gpu` es la cola compartida del motor (si
-        falta, se crea una propia); `now` y `tick_seconds` se reemplazan en las pruebas.
+        falta, se crea una propia); `memory` escribe cada turno en Neo4j (CP6; sin
+        ella, la entidad no guarda episodios); `now` y `tick_seconds` se
+        reemplazan en las pruebas.
         """
         self.entity = entity
         self.bus = bus
@@ -103,6 +108,7 @@ class Orchestrator:
         self.tick_seconds = tick_seconds
         self.llm = llm
         self.gpu = gpu or GpuQueue(bus)
+        self.memory = memory
         self._save_state = save_state
         self.parameters = derive_parameters(entity.config.traits)
         self.affect_dynamics = AffectDynamics.from_parameters(self.parameters)
@@ -266,8 +272,9 @@ class Orchestrator:
         Primero corre la vía baja (CPU, milisegundos). Si no se dispara, sigue
         el turno normal de §6.2 (`_normal_turn`); si se dispara, la ruta
         impulsiva (`_impulsive_turn`). Al terminar, guarda el intercambio y
-        emite `turn.completed` con el resumen para la consola. Cada evento se
-        encadena por `cause_id` con el que lo provocó.
+        lo escribe en la memoria (`memory.written`) y emite `turn.completed` con
+        el resumen para la consola. Cada evento se encadena por `cause_id` con
+        el que lo provocó.
 
         Si quien consume deja de leer, cerrar este iterador cierra el streaming
         del LLM (`llm.cancelled`) y el intercambio no se guarda.
@@ -291,6 +298,9 @@ class Orchestrator:
 
             result: LLMResult = summary["result"]
             self._remember_turn(text, result.text)
+            memory_started = time.perf_counter()
+            memory_event = await self._write_memory(text, result.text, low_road.triggered, summary)
+            memory_s = time.perf_counter() - memory_started
             self.bus.emit(
                 self.entity_id, "turn.completed",
                 {
@@ -301,15 +311,18 @@ class Orchestrator:
                     "affect_after": summary["affect_event"].payload,
                     "temperature": summary["temperature"],
                     "refusals": summary["refusals"],
+                    # None si la memoria está desactivada; si no, lo escrito o el error.
+                    "memory": memory_event.payload if memory_event else None,
                     "latency": {
                         "low_road_ms": low_road_ms,
                         "appraisal_s": summary["appraisal_s"],
                         "first_token_s": result.first_token_s,
                         "response_s": result.total_s,
+                        "memory_s": memory_s if memory_event else None,
                         "total_s": time.perf_counter() - started,
                     },
                 },
-                cause_id=summary["completed_cause_id"],
+                cause_id=memory_event.id if memory_event else summary["completed_cause_id"],
             )
             self._save_state(self.state)
 
@@ -568,6 +581,36 @@ class Orchestrator:
         )
         self.bus.emit(self.entity_id, "drive.updated", dict(after), cause_id=event.id)
         return event
+
+    async def _write_memory(
+        self, user_text: str, entity_text: str, impulsive: bool, summary: dict
+    ) -> Event | None:
+        """
+        Escribe el episodio y la huella del turno (§6.2, post-turno; D1-37).
+
+        Corre después de la respuesta, así que no retrasa el primer token, y
+        antes de `turn.completed`, así que el turno siguiente ya lo encuentra.
+        Emite `memory.written` o, si Neo4j o el embedder fallan,
+        `memory.write_failed`: un recuerdo perdido no debe romper la
+        conversación, que ya ocurrió y sigue en la conversación reciente.
+        Devuelve el evento emitido, o None si no hay memoria.
+        """
+        if self.memory is None:
+            return None
+        try:
+            written = await self.memory.write_turn(
+                self.entity_id, ts=self.now(), user_text=user_text, entity_text=entity_text,
+                affect=self.state.affect, appraisal=summary["appraisal"], impulsive=impulsive,
+            )
+        except Exception as error:  # noqa: BLE001 — cualquier fallo de Neo4j o del embedder
+            return self.bus.emit(
+                self.entity_id, "memory.write_failed",
+                {"error": f"{type(error).__name__}: {error}"},
+                cause_id=summary["completed_cause_id"],
+            )
+        return self.bus.emit(
+            self.entity_id, "memory.written", written.as_dict(), cause_id=summary["completed_cause_id"]
+        )
 
     def _remember_turn(self, user_text: str, entity_text: str) -> None:
         """Guarda el intercambio y conserva solo los últimos `RECENT_TURNS` (D1-24)."""

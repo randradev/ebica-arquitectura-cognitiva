@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP6: plan detallado propuesto (2026-10-27), D1-34 (c) a D1-42 confirmadas; parte A autorizada.**
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP6 completo (2026-10-27)**, salvo la verificación visual del usuario; decisiones hasta D1-42. **Siguiente:** plan de CP7 (recuperación híbrida).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -465,7 +465,7 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - Un solo `MERGE`/transacción por operación, con el `entity_id` en cada patrón.
 - **Aceptación** (integración con Neo4j real y una entidad temporal `test-…`, borrada al terminar): un turno crea exactamente un `Episode`, una `Trace` y sus relaciones; importar dos veces no duplica; editar el texto de un hecho lo actualiza (con su embedding); dos entidades con los mismos ids no se cruzan; `vector_search` encuentra el episodio recién escrito.
 
-**C · Conexión con el turno y el servidor**
+**C · Conexión con el turno y el servidor** — *hecha (2026-10-27): prueba en vivo con `bge-m3` y Neo4j reales; 0,25–0,50 s por turno tras la respuesta; hallazgo de importancia para CP7 (ver `REPORTE.md`).*
 - `Orchestrator` recibe un `MemoryWriter` opcional. Tras la respuesta (y tras el appraisal posterior en la ruta impulsiva), dentro del lock del turno y antes de `turn.completed`, escribe el episodio (D1-37). Evento `memory.written` (id, `importance`, temas, latencias de embedding y de escritura), encadenado por `cause_id`. Si falla: `memory.write_failed` y el turno sigue.
 - Servidor (D1-38): al arrancar carga el embedder y aplica el esquema; al cargar una entidad importa su semilla (`memory.seed_imported` con creados / actualizados / sin cambios / huérfanos). `EBICA_MEMORY=off` arranca sin memoria a propósito. `create_app` acepta la memoria inyectada, así las pruebas de la API siguen sin Neo4j ni `torch`.
 - Consola: en «Último turno», una línea de memoria (episodio escrito, importancia y temas, o el error).
@@ -503,6 +503,7 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - selección final con MMR (`λ_mmr`, hasta `k`, según O);
   - efecto: sube la `lability` de lo recuperado;
   - las alertas altas con valencia negativa bajan `k` (§5.4).
+- Pendiente de CP6 (prueba en vivo): con D1-36, «Adopté un perro, se llama Toby» quedó con importancia 0,00 y un saludo con 0,36. Revisar la fórmula antes de fijar `w_i` (p. ej., un piso para la información nueva sobre el interlocutor, o usar `novelty`). Excluir de la recuperación los hechos `core`, que ya van en «Quién soy» (D1-34).
 - Prompt: secciones 4 ("Lo que me viene a la mente", con su tono) y 5 ("Lo que sé").
 - Evento `memory.retrieved` con los candidatos y el desglose de cada puntaje. Consola: recuerdos recuperados en el panel del último turno.
 - **Aceptación:**
