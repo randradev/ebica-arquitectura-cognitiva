@@ -1,0 +1,411 @@
+"""
+Escritura de la memoria episódica (documento base §5.7, §7; Fase 1, CP6).
+
+Dos operaciones, las únicas que escriben en vigilia (§7.1):
+- `import_seed`: carga la biografía semilla de una entidad (`Self`, `Fact` de
+  dominio `self` y `Episode` iniciales con su `Trace`). Es idempotente: cargar
+  la entidad muchas veces no duplica nada (D1-39).
+- `write_turn`: tras cada turno, un `Episode` (el recuerdo que la entidad
+  evocará) y su `Trace` (la huella cruda, que la entidad nunca consulta), con
+  los enlaces `NEXT`, `DERIVED_FROM` y `ABOUT` hacia los `Topic`.
+
+Los hechos no se crean en vigilia (salvo la semilla): si el usuario cuenta
+algo, la entidad lo recuerda a través del episodio hasta que el sueño de Fase 2
+lo semantice. Los `Commitment` llegan en CP10 y las `Person`, en CP8 (D1-40).
+Recuperar lo escrito es trabajo de CP7.
+"""
+
+import hashlib
+import json
+import time
+import unicodedata
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from ebica.affect.vad import VAD
+from ebica.identity.biography import SeedBiography, SeedEpisode, SeedFact
+from ebica.memory.graph import GraphStore
+from ebica.perception.appraisal import Appraisal
+from ebica.perception.embeddings import Embedder
+
+# CONSTANTE: largo máximo de la respuesta dentro del texto del episodio (D1-35).
+# El recuerdo guarda lo esencial; la huella guarda la respuesta completa.
+RESPONSE_MAX_CHARS = 600
+# CONSTANTE: máximo de temas enlazados por episodio. El appraisal suele dar
+# 1–3; el tope evita que una respuesta desbordada llene el grafo de temas.
+MAX_TOPICS_PER_EPISODE = 5
+# CONSTANTES: pesos de la importancia de un episodio (D1-36, calibrables).
+# Suman 1, así que la importancia queda en [0, 1].
+IMPORTANCE_SELF_RELEVANCE = 0.4
+IMPORTANCE_GOAL_CONGRUENCE = 0.3
+IMPORTANCE_INTENSITY = 0.3
+
+# `kind` de los episodios de la semilla. §7.2 solo prevé dialogue, thought,
+# initiative y dream; los recuerdos de origen no son ninguno de ellos
+# (desviación menor, como `Revision.episode_id` en D1-9).
+SEED_KIND = "seed"
+DIALOGUE_KIND = "dialogue"
+
+
+# ------------------------------------------------------------ funciones puras
+
+
+def episode_text(user_text: str, entity_text: str, limit: int | None = RESPONSE_MAX_CHARS) -> str:
+    """
+    Texto de un episodio de diálogo (D1-35): qué me dijeron y qué respondí.
+
+    Va en primera persona porque es el recuerdo de la entidad. Con `limit`, la
+    respuesta se recorta (el recuerdo); con `None`, queda completa (la huella).
+    El nombre de quien habló entra en CP8, con el PartnerModel.
+    """
+    response = entity_text.strip()
+    if limit is not None and len(response) > limit:
+        response = response[:limit].rstrip() + "…"
+    return f"Me dijeron: «{user_text.strip()}»\nRespondí: «{response}»"
+
+
+def episode_importance(appraisal: Appraisal) -> float:
+    """
+    Importancia de un episodio a partir del appraisal (D1-36).
+
+    Lo que toca a la entidad (`self_relevance`), lo que favorece o frustra lo
+    que quiere (|`goal_congruence`|) y la carga del mensaje (hostilidad o
+    angustia) hacen un recuerdo más importante. Ej.: «hola, ¿cómo estás?» ≈
+    0,14; «eres una inútil» ≈ 0,89. CP7 la usa en el puntaje de recuperación.
+    """
+    intensity = max(appraisal.hostility, appraisal.distress)
+    value = (
+        IMPORTANCE_SELF_RELEVANCE * appraisal.self_relevance
+        + IMPORTANCE_GOAL_CONGRUENCE * abs(appraisal.goal_congruence)
+        + IMPORTANCE_INTENSITY * intensity
+    )
+    return min(1.0, max(0.0, value))
+
+
+def _singular(word: str) -> str:
+    """
+    Singular simple y conservador: solo las terminaciones casi siempre seguras.
+
+    «pianos» → «piano», «gatas» → «gata», «canciones» → «cancion». No toca
+    «series», «crisis», «padres» ni «flores»: sin un léxico no se puede saber
+    el singular, y un error fusionaría temas distintos. Los sinónimos y
+    plurales que queden separados los fusiona el sueño (Fase 2).
+    """
+    if len(word) > 5 and word.endswith("ones"):
+        return word[:-2]
+    if len(word) > 4 and word.endswith(("os", "as")):
+        return word[:-1]
+    return word
+
+
+def normalize_topic(name: str) -> str:
+    """Nombre canónico de un tema: minúsculas, sin tildes, espacios simples y singular simple."""
+    decomposed = unicodedata.normalize("NFD", name.lower())
+    # Se quitan las tildes, pero no la virgulilla de la ñ (como en la vía baja).
+    without_accents = "".join(
+        char for char in decomposed if unicodedata.category(char) != "Mn" or char == "̃"
+    )
+    words = unicodedata.normalize("NFC", without_accents).split()
+    return " ".join(_singular(word) for word in words)
+
+
+def normalize_topics(names: list[str]) -> list[str]:
+    """Normaliza, descarta vacíos y repetidos (conservando el orden) y aplica el tope."""
+    result: list[str] = []
+    for name in names:
+        topic = normalize_topic(name)
+        if topic and topic not in result:
+            result.append(topic)
+    return result[:MAX_TOPICS_PER_EPISODE]
+
+
+def content_hash(*parts: object) -> str:
+    """
+    Huella del contenido de un nodo de la semilla (D1-39).
+
+    Si cambia el texto (o el afecto de un episodio) en `config.yaml`, la huella
+    cambia y el nodo se actualiza al cargar, con su embedding nuevo.
+    """
+    payload = json.dumps([str(part) for part in parts], ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _fact_hash(fact: SeedFact) -> str:
+    """Huella de un hecho de la semilla: solo su texto (`core` no cambia el nodo)."""
+    return content_hash(fact.text)
+
+
+def _episode_hash(episode: SeedEpisode) -> str:
+    """Huella de un episodio de la semilla: texto, fecha y afecto con que se recuerda."""
+    return content_hash(
+        episode.text, episode.ts.isoformat(), episode.valence, episode.arousal,
+        episode.dominance, episode.importance,
+    )
+
+
+def _trace_id(episode_id: str) -> str:
+    """Id de la huella de un episodio: el mismo sufijo, para encontrarlas juntas en Neo4j Browser."""
+    return f"tr-{episode_id.removeprefix('ep-')}"
+
+
+# ------------------------------------------------------------ resultados
+
+
+@dataclass
+class SeedImportReport:
+    """Qué hizo una importación de la semilla (para el evento `memory.seed_imported`)."""
+
+    created: list[str] = field(default_factory=list)
+    updated: list[str] = field(default_factory=list)
+    unchanged: int = 0
+    # Ids de la semilla que están en Neo4j pero ya no en `config.yaml`: no se
+    # borran (Fase 2 podría haberlos enlazado), solo se informan (D1-39).
+    orphaned: list[str] = field(default_factory=list)
+    embed_ms: float = 0.0
+    write_ms: float = 0.0
+
+    def as_dict(self) -> dict:
+        """Versión JSON para el evento."""
+        return {
+            "created": len(self.created), "updated": self.updated, "unchanged": self.unchanged,
+            "orphaned": self.orphaned, "embed_ms": round(self.embed_ms, 1),
+            "write_ms": round(self.write_ms, 1),
+        }
+
+
+@dataclass
+class WrittenEpisode:
+    """Lo que escribió un turno (para el evento `memory.written`)."""
+
+    episode_id: str
+    trace_id: str
+    importance: float
+    topics: list[str]
+    new_topics: list[str]
+    previous_episode_id: str | None
+    embed_ms: float
+    write_ms: float
+
+    def as_dict(self) -> dict:
+        """Versión JSON para el evento."""
+        return {
+            "episode_id": self.episode_id, "trace_id": self.trace_id,
+            "importance": round(self.importance, 3), "topics": self.topics,
+            "new_topics": self.new_topics, "previous_episode_id": self.previous_episode_id,
+            "embed_ms": round(self.embed_ms, 1), "write_ms": round(self.write_ms, 1),
+        }
+
+
+# ------------------------------------------------------------ escritura
+
+# Datos comunes de un episodio recién vivido o sembrado (§7.2): todavía no se
+# evocó (lability 0), no está bloqueado y es su primera versión.
+_NEW_EPISODE_PROPS = "confidence: 1.0, lability: 0.0, access: 'open', tension: 0.0, version: 1"
+
+_UPSERT_FACTS = """
+UNWIND $rows AS r
+MERGE (f:Fact {entity_id: $entity_id, id: r.id})
+SET f.text = r.text, f.embedding = r.embedding, f.content_hash = r.hash,
+    f.confidence = 1.0, f.domain = 'self', f.source = 'seed'
+"""
+
+_UPSERT_SEED_EPISODES = f"""
+UNWIND $rows AS r
+MERGE (e:Episode {{entity_id: $entity_id, id: r.id}})
+ON CREATE SET e += {{{_NEW_EPISODE_PROPS}}}
+SET e.ts = r.ts, e.kind = '{SEED_KIND}', e.source = 'seed', e.summary = r.text, e.text = r.text,
+    e.embedding = r.embedding, e.valence = r.valence, e.arousal = r.arousal,
+    e.dominance = r.dominance, e.importance = r.importance, e.content_hash = r.hash
+MERGE (t:Trace {{entity_id: $entity_id, id: r.trace_id}})
+SET t.ts = r.ts, t.raw_text = r.text, t.raw_affect_json = r.affect_json, t.appraisal_json = null
+MERGE (e)-[:DERIVED_FROM]->(t)
+"""
+
+# Rehace la cadena NEXT entre los episodios de la semilla, por fecha. Solo
+# toca los enlaces entre dos episodios de la semilla: el que une el último
+# recuerdo de origen con la primera conversación se crea al escribir esa
+# conversación y no se modifica aquí.
+_RELINK_SEED_EPISODES = """
+MATCH (:Episode {entity_id: $entity_id, source: 'seed'})-[n:NEXT]->(:Episode {entity_id: $entity_id, source: 'seed'})
+DELETE n
+WITH count(*) AS removed
+MATCH (e:Episode {entity_id: $entity_id, source: 'seed'})
+WITH e ORDER BY e.ts
+WITH collect(e) AS episodes
+UNWIND range(0, size(episodes) - 2) AS i
+WITH episodes[i] AS earlier, episodes[i + 1] AS later
+CREATE (earlier)-[:NEXT]->(later)
+"""
+
+# Un turno en una sola consulta, que Neo4j ejecuta como una transacción: o se
+# escribe todo (episodio, huella, enlaces y temas) o nada.
+_WRITE_TURN = f"""
+OPTIONAL MATCH (previous:Episode {{entity_id: $entity_id}})
+WITH previous ORDER BY previous.ts DESC LIMIT 1
+CREATE (e:Episode {{entity_id: $entity_id, id: $episode_id, ts: $ts, kind: '{DIALOGUE_KIND}',
+                   summary: $text, text: $text, embedding: $embedding,
+                   valence: $valence, arousal: $arousal, dominance: $dominance,
+                   importance: $importance, {_NEW_EPISODE_PROPS}}})
+CREATE (t:Trace {{entity_id: $entity_id, id: $trace_id, ts: $ts, raw_text: $raw_text,
+                 raw_affect_json: $affect_json, appraisal_json: $appraisal_json, route: $route}})
+CREATE (e)-[:DERIVED_FROM]->(t)
+FOREACH (p IN CASE WHEN previous IS NULL THEN [] ELSE [previous] END | CREATE (p)-[:NEXT]->(e))
+FOREACH (topic IN $topics |
+    MERGE (tp:Topic {{entity_id: $entity_id, name: topic.name}})
+    ON CREATE SET tp.embedding = topic.embedding, tp.n = 0
+    SET tp.n = tp.n + 1
+    MERGE (e)-[:ABOUT]->(tp))
+RETURN previous.id AS previous_id
+"""
+
+
+def _affect_json(valence: float, arousal: float, dominance: float) -> str:
+    """El afecto como JSON, para la huella (la entidad no la consulta; la consola sí)."""
+    return json.dumps({"valence": valence, "arousal": arousal, "dominance": dominance})
+
+
+class MemoryWriter:
+    """
+    Escribe en Neo4j lo que la entidad vive y lo que trae de origen.
+
+    Usa el `GraphStore` (consultas) y el `Embedder` (vectores). Comprueba la
+    dimensión de cada vector antes de escribir: Neo4j acepta un vector de otra
+    dimensión sin error y lo deja fuera del índice, invisible para la búsqueda
+    (sondeado en CP2).
+    """
+
+    def __init__(self, graph: GraphStore, embedder: Embedder) -> None:
+        """Guarda el acceso al grafo y el embedder; no se conecta todavía."""
+        self.graph = graph
+        self.embedder = embedder
+
+    async def _embed(self, texts: list[str]) -> list[list[float]]:
+        """Embeddings de textos que se guardan para ser encontrados; falla si la dimensión no es la esperada."""
+        if not texts:
+            return []
+        vectors = await self.embedder.embed(texts, "passage")
+        wrong = {len(vector) for vector in vectors if len(vector) != self.embedder.dimension}
+        if wrong:
+            raise ValueError(
+                f"El embedder devolvió vectores de dimensión {sorted(wrong)}, "
+                f"se esperaba {self.embedder.dimension}: no se escribe nada"
+            )
+        return vectors
+
+    async def import_seed(self, entity_id: str, name: str, biography: SeedBiography) -> SeedImportReport:
+        """
+        Importa la biografía semilla de forma idempotente (D1-39).
+
+        Crea los nodos que faltan, actualiza los que cambiaron en
+        `config.yaml` (con embedding nuevo) y deja igual el resto. Solo calcula
+        embeddings de lo creado o cambiado, así que una carga sin cambios es
+        rápida. Los ids que desaparecieron de la configuración se informan,
+        no se borran.
+        """
+        report = SeedImportReport()
+        existing = {
+            row["id"]: row["hash"]
+            for row in await self.graph.execute(
+                "MATCH (n {entity_id: $entity_id, source: 'seed'}) WHERE n:Fact OR n:Episode "
+                "RETURN n.id AS id, n.content_hash AS hash",
+                entity_id=entity_id,
+            )
+        }
+        facts = [(fact, _fact_hash(fact)) for fact in biography.facts]
+        episodes = [(episode, _episode_hash(episode)) for episode in biography.episodes]
+        pending_facts = [(fact, digest) for fact, digest in facts if existing.get(fact.id) != digest]
+        pending_episodes = [(ep, digest) for ep, digest in episodes if existing.get(ep.id) != digest]
+        for item, _ in [*pending_facts, *pending_episodes]:
+            (report.updated if item.id in existing else report.created).append(item.id)
+        report.unchanged = len(facts) + len(episodes) - len(pending_facts) - len(pending_episodes)
+        configured = {item.id for item, _ in [*facts, *episodes]}
+        report.orphaned = sorted(set(existing) - configured)
+
+        started = time.perf_counter()
+        vectors = await self._embed([item.text for item, _ in [*pending_facts, *pending_episodes]])
+        report.embed_ms = (time.perf_counter() - started) * 1000
+        fact_vectors, episode_vectors = vectors[: len(pending_facts)], vectors[len(pending_facts):]
+
+        started = time.perf_counter()
+        await self.graph.execute(
+            "MERGE (s:Self {entity_id: $entity_id}) SET s.name = $name", entity_id=entity_id, name=name
+        )
+        if pending_facts:
+            await self.graph.execute(
+                _UPSERT_FACTS, entity_id=entity_id,
+                rows=[{"id": fact.id, "text": fact.text, "embedding": vector, "hash": digest}
+                      for (fact, digest), vector in zip(pending_facts, fact_vectors)],
+            )
+        if pending_episodes:
+            await self.graph.execute(
+                _UPSERT_SEED_EPISODES, entity_id=entity_id,
+                rows=[{"id": ep.id, "trace_id": _trace_id(ep.id), "ts": ep.ts, "text": ep.text,
+                       "embedding": vector, "valence": ep.valence, "arousal": ep.arousal,
+                       "dominance": ep.dominance, "importance": ep.importance, "hash": digest,
+                       "affect_json": _affect_json(ep.valence, ep.arousal, ep.dominance)}
+                      for (ep, digest), vector in zip(pending_episodes, episode_vectors)],
+            )
+            # Una fecha nueva o un episodio nuevo pueden cambiar el orden.
+            await self.graph.execute(_RELINK_SEED_EPISODES, entity_id=entity_id)
+        report.write_ms = (time.perf_counter() - started) * 1000
+        return report
+
+    async def write_turn(
+        self,
+        entity_id: str,
+        *,
+        ts: datetime,
+        user_text: str,
+        entity_text: str,
+        affect: VAD,
+        appraisal: Appraisal,
+        impulsive: bool = False,
+    ) -> WrittenEpisode:
+        """
+        Escribe el recuerdo y la huella de un turno (§6.2, post-turno).
+
+        `affect` es el ánimo tras el turno: el afecto con que se vivió y con el
+        que se recordará (lo que la reinscripción de Fase 2 podrá ir moviendo).
+        El episodio se enlaza con `NEXT` desde el más reciente de la entidad
+        (el último de la semilla, si es la primera conversación) y con `ABOUT`
+        hacia los temas del appraisal; los temas nuevos se crean con su
+        embedding y los existentes suman una aparición (`n`).
+        """
+        episode_id = f"ep-{uuid.uuid4().hex[:12]}"
+        text = episode_text(user_text, entity_text)
+        topics = normalize_topics(appraisal.topics)
+        known = {
+            row["name"]
+            for row in await self.graph.execute(
+                "MATCH (t:Topic {entity_id: $entity_id}) WHERE t.name IN $names RETURN t.name AS name",
+                entity_id=entity_id, names=topics,
+            )
+        } if topics else set()
+        new_topics = [topic for topic in topics if topic not in known]
+
+        started = time.perf_counter()
+        # Un solo lote: el texto del episodio y los temas nuevos.
+        vectors = await self._embed([text, *new_topics])
+        embed_ms = (time.perf_counter() - started) * 1000
+        topic_vectors = dict(zip(new_topics, vectors[1:]))
+
+        importance = episode_importance(appraisal)
+        started = time.perf_counter()
+        rows = await self.graph.execute(
+            _WRITE_TURN, entity_id=entity_id, episode_id=episode_id, trace_id=_trace_id(episode_id),
+            ts=ts, text=text, embedding=vectors[0],
+            valence=affect.valence, arousal=affect.arousal, dominance=affect.dominance,
+            importance=importance,
+            raw_text=episode_text(user_text, entity_text, limit=None),
+            affect_json=_affect_json(affect.valence, affect.arousal, affect.dominance),
+            appraisal_json=appraisal.model_dump_json(),
+            route="impulsive" if impulsive else "normal",
+            topics=[{"name": topic, "embedding": topic_vectors.get(topic)} for topic in topics],
+        )
+        write_ms = (time.perf_counter() - started) * 1000
+        return WrittenEpisode(
+            episode_id=episode_id, trace_id=_trace_id(episode_id), importance=importance,
+            topics=topics, new_topics=new_topics, previous_episode_id=rows[0]["previous_id"],
+            embed_ms=embed_ms, write_ms=write_ms,
+        )

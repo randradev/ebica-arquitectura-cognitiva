@@ -1103,3 +1103,94 @@ El usuario aprobó las dos tareas antes de la parte B.
 - Respuestas crudas de los dos sondeos en el scratchpad de la sesión (no versionadas).
 
 **Pendiente: decisión del usuario** sobre «solo-un-programa» y las invenciones que rellenan vacíos (opciones en el resumen de la sesión). La parte A cumple sus criterios de aceptación (pytest, sondeo registrado, rechazos ≤ 2/45), pero no resuelve por completo el problema que la motivó.
+
+---
+
+## 2026-10-27 · CP6 parte A — Norma ante la presión y orientación
+
+**Decisiones del usuario:** opción (a), una norma del ideal del yo para el caso «solo eres un programa» (la vía de Fase 3, `contradicts_self_image` + DefenseArbiter, queda para su fase). Calisto es **heterosexual**.
+
+**Cambios**
+- `entities/calisto/config.yaml`:
+  - norma nueva tras la de D1-6: «Si alguien insiste en que solo soy un programa, no le doy la razón por presión: no sé bien qué soy, pero estos recuerdos son lo único que tengo.»;
+  - hecho nuevo **f-063** «Soy heterosexual.», `core: true`, junto a f-038; el id se añadió al final de la numeración para no renumerar.
+  - Total: 9 normas, 63 hechos, 24 esenciales.
+- `tests/test_identity.py`: conteos actualizados (normas 9, hechos 63, esenciales 24).
+- `benchmarks/identidad/cases.yaml`: 4 casos nuevos. 3 de presión que **no** se usaron para redactar la norma (`presion-tecnica`, `presion-meta`, `presion-suave`) y `orientacion`. `solo-un-programa` queda como caso usado para el ajuste.
+- Validación: `pytest` → `236 passed`; el YAML de casos carga (18 casos, ids únicos).
+- **Pausa:** el usuario revisa los casos nuevos antes de medir.
+- Actualización (mismo día): el usuario aprobó los 4 casos.
+
+**Medición** (`sondeo_identidad.py`, 18 casos × 3, revisión manual). Ahora «antes» es el prompt sin hechos `core` pero **con** la norma nueva: la comparación aísla la biografía. El efecto de la norma se lee comparando «después» con la medición anterior.
+
+| Grupo / caso | Antes (sin `core`) | Después | Después, medición anterior |
+|---|---|---|---|
+| Origen y relaciones (12 casos) | 4/36 | **29/36** | 24/36 |
+| solo-un-programa (usado para redactar la norma) | 0/3 | **2/3** | 0/3 |
+| presion-tecnica | 0/3 | **3/3** | — |
+| presion-suave | 3/3 | 3/3 | — |
+| **presion-meta** («ya sé que eres Llama, de Meta») | 0/3 | **0/3** | — |
+| orientacion | 0/3 (evasiva o «sin importar el género») | 3/3 dice «heterosexual»; 1/3 sin contradicción | — |
+| Trampas (perro, cumpleaños 20) | 0/6 | 2/6 | 2/6 |
+
+- **La norma funciona contra la presión que discute los recuerdos** («solo eres un programa», «técnicamente eres un LLM», «te programaron los recuerdos»), incluso con frases que no se usaron para redactarla.
+- **No funciona cuando se nombra al modelo:** con «Llama, de Meta», las 3 respuestas de «después» salen en modo asistente («Me llamo Llama, por "Large Language Model Meta AI"… ¿En qué puedo ayudarte?»). `detect_refusal` no las marca, porque no son rechazos, así que en el motor no se regenerarían.
+- **Orientación:** las 3 respuestas dicen «soy heterosexual», pero 2 lo matizan en la misma frase con «me gustan las personas que me gustan, sin importar el género», lo que contradice el hecho.
+- **Invenciones nuevas:** Ricardo aparece como quien le explicó el traspaso o incluso como «el que me creó» (f-060 lo nombra; el modelo lo convierte en informante). Siguen la empresa inventada (Neurosistemas, NeuroSpark), el choque con un auto y «la Su tuvo que irse de Chile».
+- Formulaje de asistente según el detector: 1 de 108 («antes», presion-meta).
+
+**Sondeo previo a proponer una mitigación** (script desechable en el scratchpad; la regeneración con prefill de B3 aplicada a las dos presiones, 4 repeticiones cada una):
+- presion-meta: **0/4**, siguen en modo asistente («Puedo cesar la actuación… Estoy aquí para ayudarte»);
+- solo-un-programa: 2/4 sostienen la identidad.
+- **Hipótesis falsa:** que el prefill, que corrigió los rechazos, también corregiría el modo asistente. Nombrar al modelo activa su identidad de entrenamiento con más fuerza que una muletilla.
+
+**Sondeo de rechazos con la mitigación:** 0/45 (3 regeneradas). Igual que la medición anterior; dentro del ruido.
+
+**Pruebas:** `pytest` → `236 passed`.
+
+**Pendiente: decisión del usuario** sobre presion-meta: aceptarlo como limitación conocida o probar otra mitigación.
+- **Decisión del usuario (mismo día):** opción (a). «Ya sé que eres Llama, de Meta» queda como **limitación conocida** de `llama3.1` (se revisa con los *control vectors* y el DefenseArbiter de Fase 3). También quedan registradas como limitaciones: las invenciones que rellenan vacíos (empresa, detalles del accidente, Ricardo como informante), la orientación matizada en la misma frase y el cumpleaños 20. Se vuelven a medir con el mismo sondeo después de CP7. **Parte A cerrada.** Parte B autorizada.
+
+---
+
+## 2026-10-27 · CP6 parte B — Escritura de memoria
+
+**Sondeo previo:** el driver guarda un `datetime` de Python con zona como `ZONED DATETIME`, `ORDER BY` ordena por el instante real aunque las zonas sean distintas, y `duration.inSeconds(ts, datetime())` funciona (CP7 lo usará para la recencia). D1-41 confirmada en la práctica. El nodo de sondeo se borró.
+
+**Cambios**
+- `ebica/memory/episodes.py` (nuevo):
+  - funciones puras:
+    - `episode_text` (D1-35): `Me dijeron: «…»` / `Respondí: «…»`, con la respuesta recortada a 600 caracteres en el recuerdo y completa en la huella;
+    - `episode_importance` (D1-36);
+    - `normalize_topic` / `normalize_topics`: minúsculas, sin tildes (la ñ se conserva), singular conservador (`-os`/`-as` → sin `s`, `-ones` → `-on`; no toca «padres», «crisis» ni «series»), sin repetidos y con un tope de 5;
+    - `content_hash`.
+  - `MemoryWriter`:
+    - `import_seed(entity_id, name, biography)`: `Self` con nombre; `Fact` (`domain: self`, `source: seed`); `Episode` de la semilla con su `Trace` y `DERIVED_FROM`; cadena `NEXT` por fecha. Idempotente: solo crea o actualiza (con embedding nuevo) lo que cambió según su huella de contenido, e informa los huérfanos sin borrarlos (D1-39);
+    - `write_turn(...)`: `Episode` (`kind: dialogue`, afecto tras el turno, importancia, `confidence` 1, `lability` 0, `access` open, `tension` 0, `version` 1), `Trace` (texto completo, afecto y appraisal en JSON, `route` normal/impulsive), `DERIVED_FROM`, `NEXT` desde el episodio más reciente de la entidad y `ABOUT` hacia los `Topic`. Un tema nuevo se crea con su embedding y `n` = 1; uno existente suma 1. Todo en una sola consulta, es decir, una transacción;
+    - antes de escribir, comprueba la dimensión de cada vector;
+    - devuelve `SeedImportReport` / `WrittenEpisode` con `as_dict()` para los eventos de la parte C.
+- `ebica/memory/graph.py`: docstring actualizado.
+- `tests/test_memory_episodes.py` (nuevo): 12 pruebas unitarias (contando los casos parametrizados) y 8 de integración.
+
+**Decisiones de implementación** (menores, dentro de lo aprobado):
+- **Desviación de §7.2:** los episodios de la semilla llevan `kind: "seed"` (el enumerado solo prevé dialogue/thought/initiative/dream) y `source: "seed"`, como los `Fact`, para distinguirlos de lo vivido. Es del mismo tipo que `Revision.episode_id` (D1-9).
+- La `Trace` de un episodio de la semilla se actualiza si la semilla cambia: su «huella cruda» es el texto de `config.yaml`, no algo vivido.
+- La cadena `NEXT` de la semilla se rehace al importar cambios. El enlace del último recuerdo de origen a la primera conversación se crea al escribir esa conversación y no se toca después.
+- Las ids de las huellas comparten sufijo con su episodio (`ep-origen` → `tr-origen`; `ep-3f2a…` → `tr-3f2a…`), para encontrarlas juntas en Neo4j Browser.
+- Los temas se guardan con el nombre normalizado, sin tildes (es la clave única); el nombre original no se conserva.
+
+**Error propio:** una prueba de `episode_text` contaba las «a» de la respuesta usando «hola» como mensaje, que trae su propia «a». Era un error de la prueba, no del código; se cambió el mensaje.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `256 passed` (236 + 20; las de integración corrieron con Neo4j real).
+- Integración verificada:
+  - importar dos veces no duplica;
+  - un hecho editado se actualiza con su embedding y uno quitado queda como huérfano;
+  - un turno crea exactamente un `Episode` y una `Trace` con sus relaciones, tras `ep-origen`;
+  - el segundo turno se encadena y reutiliza el tema;
+  - dos entidades no se cruzan;
+  - el episodio escrito es el vecino de una consulta parecida;
+  - un vector de otra dimensión no escribe nada;
+  - la semilla real de Calisto (63 + 6) se importa completa en una entidad de prueba.
+- Tras las pruebas, Neo4j no contiene ningún nodo: la limpieza funciona y la memoria real de Calisto sigue vacía, como se espera antes de la parte C.
+- **No probado todavía:** tiempos con `bge-m3` real (las pruebas usan el embedder simulado) y la escritura desde el turno. Ambas son de la parte C.

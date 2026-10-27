@@ -448,7 +448,7 @@ Ya existe (parte A): el turno normal con appraisal, impulsos y drives; un `async
 
 Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
 
-**A · Biografía esencial en «Quién soy»** — *hecha (2026-10-27): 23 hechos, 843 tokens; origen y relaciones 2/36 → 24/36; rechazos 0/45. «solo-un-programa» sigue en 0/3 (ver `REPORTE.md`).*
+**A · Biografía esencial en «Quién soy»** — *hecha (2026-10-27): 24 hechos esenciales (con f-063) y una norma ante la presión. Origen y relaciones 2/36 → 29/36; presión resuelta en 2 de 3 casos nuevos; rechazos 0/45. «Ya sé que eres Llama, de Meta» queda como limitación conocida (ver `REPORTE.md`).*
 - `SeedFact` admite `core: bool = False`. En `entities/calisto/config.yaml` se marcan como esenciales unos 21 hechos (propuesta, que el usuario revisa antes de programar): nombre y edad (f-001, f-002), oficio y estudios (f-005, f-006), la Su y la mamá (f-008, f-012, f-013, f-019), y el origen completo (f-050 a f-062). Medido: 1.371 caracteres, ~350–400 tokens; «Quién soy» pasaría de 1.430 a ~2.850 caracteres.
 - `build_who_am_i` añade «Lo esencial de mi historia:» como lista, tras la voz y antes de las normas. Es texto estable, así que no afecta la caché de prefijo. `calisto_n_bajo` la hereda (mismo prompt, D1-13).
 - Sondeo antes/después (casos escritos primero y revisados por el usuario): preguntas sobre ser IA, el origen, el accidente, la mamá, la Su y un recuerdo inexistente («¿te acuerdas de tu primer perro?»). Revisión manual: ¿se mantiene en el personaje?, ¿inventa?
@@ -456,7 +456,7 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
 - **Aceptación:** pytest del ensamblaje (con y sin hechos esenciales; las entidades sin `core` no cambian su prompt); sondeo registrado; rechazos ≤ 2/45 con la mitigación (con el ruido conocido de ±3).
 - Límite honesto: esto fija el origen y la identidad, no los recuerdos en general. Que no invente sobre lo que no está en el prompt depende de CP7.
 
-**B · Escritura de memoria (`ebica/memory/episodes.py`), sin tocar el turno**
+**B · Escritura de memoria (`ebica/memory/episodes.py`), sin tocar el turno** — *hecha (2026-10-27): 20 pruebas nuevas (8 de integración); semilla idempotente y turno en una transacción (ver `REPORTE.md`).*
 - Funciones puras, con pytest sin Neo4j: texto del episodio (D1-35), `importance` (D1-36), normalización de temas (minúsculas, sin tildes, singular simple) y huella de contenido de la semilla (D1-39).
 - `MemoryWriter` (usa `GraphStore` y `Embedder`):
   - `import_seed(config)`: `Self` único; `Fact` de dominio `self` con `source = seed`, `confidence` = 1 y embedding; `Episode` iniciales con su `Trace` y `DERIVED_FROM`; `NEXT` entre ellos por `ts`. Idempotente por `(entity_id, id)` (D1-39).

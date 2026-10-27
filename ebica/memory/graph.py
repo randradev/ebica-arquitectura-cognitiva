@@ -2,8 +2,9 @@
 Conexión a Neo4j y esquema de la memoria (documento base §7, D7).
 
 Define la estructura (restricciones de unicidad, índices por entidad e
-índices vectoriales) y la búsqueda vectorial básica. Escribir episodios y la
-recuperación híbrida de §7.3 llegan en CP6 y CP7 de Fase 1.
+índices vectoriales) y la búsqueda vectorial básica. La escritura de episodios
+y de la semilla vive en `episodes.py` (CP6); la recuperación híbrida de §7.3
+llega en CP7.
 
 Todas las entidades comparten una base de datos (Neo4j Community admite una
 sola base de usuario), así que cada nodo lleva `entity_id` y toda consulta

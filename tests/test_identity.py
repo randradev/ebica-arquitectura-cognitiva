@@ -159,9 +159,9 @@ def test_calisto_config_is_complete(repo_manager):
     assert config.traits == CALISTO
     assert config.discloses_artificial is True
     assert config.primary_person.id == "ricardo" and config.primary_person.trust == pytest.approx(0.4)
-    assert len(config.ego_ideal) == 8
+    assert len(config.ego_ideal) == 9  # CP6: norma ante la presión de «solo eres un programa»
     assert any("IA" in norm for norm in config.ego_ideal)  # D1-6 como norma
-    assert len(config.seed_biography.facts) == 62
+    assert len(config.seed_biography.facts) == 63  # CP6: f-063
     assert {ep.id for ep in config.seed_biography.episodes} >= {"ep-origen"}
     assert config.appraisal_profile
 
@@ -204,8 +204,8 @@ def test_identity_loaded_reports_traits_and_parameters(repo_manager):
     identity = next(event for event in events if event.type == "identity.loaded")
     assert identity.payload["traits"]["N"] == 0.75
     assert identity.payload["parameters"]["h_neg_minutes"] == pytest.approx(42.5)
-    assert identity.payload["seed_facts"] == 62
-    assert identity.payload["seed_core_facts"] == 23
+    assert identity.payload["seed_facts"] == 63
+    assert identity.payload["seed_core_facts"] == 24
     assert identity.payload["primary_person"] == "ricardo"
     assert "Gloria" not in str(identity.payload)
 
@@ -234,7 +234,7 @@ def test_who_am_i_has_only_core_biography_between_voice_and_norms(repo_manager):
     prompt = build_system_prompt(config)
     facts = {fact.id: fact for fact in config.seed_biography.facts}
 
-    assert len(config.seed_biography.core_facts) == 23
+    assert len(config.seed_biography.core_facts) == 24
     for fact in config.seed_biography.core_facts:
         assert f"- {fact.text}" in prompt
     assert facts["f-004"].text not in prompt  # «Soy Piscis.», no esencial
