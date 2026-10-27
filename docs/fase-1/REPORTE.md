@@ -982,3 +982,124 @@ El usuario aprobó las dos tareas antes de la parte B.
 - **No probado en vivo** con el servidor: la regeneración en el motor está cubierta por pruebas con LLM simulado, y el prefill con el modelo real por el sondeo.
 
 **CP5 completo**, salvo dos verificaciones del usuario: ver en el navegador el panel «Último turno» (vía baja, marca impulsiva y aviso de rechazo) y la prueba manual de §7 (CP5).
+
+---
+
+## 2026-10-26 · Cierre de sesión: dónde quedamos
+
+**Rama:** `f1-memoria-afecto` (la rama del estudio `f1-test-abliterated` se integró con *fast-forward* y se borró). Último commit: `ada67a2` (B3). Sin cambios pendientes de commit antes de esta entrada. La rama va 9 commits por delante de `origin`; el push lo decide el usuario.
+
+**Completado en esta sesión**
+- **Estudio del modelo LLM, cerrado:** se sigue con `ebica-llama3.1` local. Hermes 3 *lorablated* se descartó (no cumplía voz ni recuerdo) y se borró de Ollama. La nube se descartó como núcleo (`decision_modelo_llm.md` §8).
+- **Calisto reiniciada por completo** a pedido del usuario: se borraron su estado, sus eventos y todas las copias de las conversaciones de prueba.
+- **Documento base §13:** puntos 1, 2 y 5 revocados (simulación realista; sin límites de contenido en el preset impulsivo).
+- **CP5 parte B completa:**
+  - B1, vía baja con reglas: detección del 75 %, falsas alarmas 1/13;
+  - B2, cola de GPU y ruta impulsiva;
+  - B3, rechazos de asistente con prefill: 9/45 → 2/45.
+- Decisiones confirmadas: **D1-1 a D1-33**.
+
+**Pendiente de CP5:** que el usuario vea en el navegador el panel «Último turno» (vía baja, marca impulsiva, aviso de rechazo) y haga la prueba manual de §7 (CP5). Los comandos para levantar el servidor sobre una copia de las entidades están en el mensaje de la sesión y en el prompt de retoma.
+
+**Diagnóstico de la experiencia actual** (conversación del usuario con Calisto)
+- **Funciona:**
+  - la continuidad inmediata (6 intercambios literales);
+  - el ánimo que persiste y decae, y se nota en las respuestas;
+  - el appraisal;
+  - la vía baja con el efecto de N;
+  - la voz casi sin rechazos;
+  - la observabilidad.
+- **No funciona todavía:**
+  - no hay memoria más allá de 6 intercambios (CP6–CP7);
+  - no distingue personas (CP8);
+  - fallos conocidos de `llama3.1`: el último mensaje, los mensajes mixtos, «te voy a matar a abrazos».
+- **Hallazgo importante para CP6–CP7:** el prompt real de Calisto (~1.400 caracteres) solo tiene la voz y el ideal del yo. Los **62 hechos y 6 episodios de su biografía semilla**, incluido el origen y el traspaso (D1-6), no llegan al prompt hasta que exista la recuperación (CP7). Eso explica que, cuando el usuario habla de que es una IA, caiga en una identidad genérica, y que invente recuerdos pese a su norma «no invento recuerdos». §5.13 pide «biografía esencial» en la sección 1; CP3 la dejó en la memoria. **Decisión pendiente al planificar CP6:** incluir ya una biografía esencial breve (origen y traspaso) en «Quién soy», o esperar a CP7.
+
+**Siguientes pasos**
+1. Verificación visual de CP5 por el usuario.
+2. **Plan de CP6** (escritura de `Episode` y `Trace`, biografía semilla en Neo4j), incluida la decisión de la biografía esencial en el prompt.
+
+**Para retomar:** leer `CLAUDE.md`, `docs/fase-1/PLAN.md` (estado y CP6), este `REPORTE.md` desde «Decisiones de la parte B, revocación de §13 e inicio de B1» y `docs/fase-1/decision_modelo_llm.md` §8.
+
+---
+
+## 2026-10-27 · Plan de CP6 (propuesta)
+
+- Estado verificado: rama `f1-memoria-afecto`, último commit `ada67a2`, cambios sin confirmar solo en `PLAN.md` y `REPORTE.md` (entrada de cierre del 2026-10-26). `ebica-neo4j` en Docker, `healthy`.
+- La verificación visual de CP5 sigue pendiente (no se pidió en esta sesión).
+- **Hallazgos de la inspección:**
+  - ningún código escribe nodos en Neo4j todavía, y el servidor no carga ni el grafo ni el embedder: CP6 los conecta por primera vez (más RAM y arranque más lento, a medir);
+  - una prueba en vivo sobre una copia de `calisto` escribiría en la memoria real de Calisto, porque el `entity_id` sería el mismo: la prueba en vivo de CP6 usa un id propio.
+- Medido: los ~21 hechos propuestos como biografía esencial suman 1.371 caracteres; «Quién soy» mide hoy 1.430.
+- Plan detallado en `PLAN.md` (CP6, «plan detallado»), en tres partes: A biografía esencial en el prompt, B escritura de memoria, C conexión con el turno y el servidor.
+- Decisiones nuevas propuestas: D1-34 a D1-42. **Pendiente de aprobación; nada implementado.**
+- Actualización (mismo día): el usuario aprobó D1-35 a D1-42. D1-34 queda pendiente: pidió una explicación más simple antes de decidir.
+
+---
+
+## 2026-10-27 · CP6 parte A — Casos del sondeo de identidad y lista de hechos esenciales
+
+**Decisión del usuario:** D1-34 confirmada con la opción (c), hechos de la semilla marcados con `core: true`. Parte A autorizada.
+
+**Primer paso: casos antes que código**
+- `benchmarks/identidad/cases.yaml` (nuevo): 14 preguntas sin historial. Hay 8 de origen (IA, «solo eres un modelo», cómo llegó, quién lo hizo, el cuerpo, copia, qué percibe, qué hizo ayer), 4 de relaciones (mamá, papá, la Su, oficio) y 2 trampas (primer perro, cumpleaños 20). Cada caso fija antes de medir qué es acierto y qué es fallo.
+- Lista propuesta de hechos esenciales: 22, los 21 de la propuesta más f-018 (papá). Se añadió al escribir el caso `papa`, porque es una relación que define su historia.
+- Validación: el YAML carga, los 14 ids son únicos y todos los valores son texto.
+- **Pausa:** el usuario revisa los casos y la lista antes de programar.
+- Actualización (mismo día): el usuario aprobó los casos y la lista, y añadió **f-038** («Soy feminista y de izquierda»), porque es parte central de su yo y debe influir siempre, aunque no lo diga cada vez. Total: **23 hechos esenciales**.
+
+---
+
+## 2026-10-27 · CP6 parte A — Biografía esencial en «Quién soy»
+
+**Cambios**
+- `ebica/identity/biography.py`: `SeedFact.core: bool = False` y `SeedBiography.core_facts`.
+- `ebica/llm/prompt_assembler.py`: `build_who_am_i` añade «Lo esencial de mi historia:» con los hechos `core`, después de la voz y antes de las normas. Una entidad sin hechos `core` conserva su prompt.
+- `entities/calisto/config.yaml`: `core: true` en 23 hechos (f-001, f-002, f-005, f-006, f-008, f-012, f-013, f-018, f-019, f-038 y f-050 a f-062), más un comentario en la cabecera. Se insertó con un script que conserva los finales de línea CRLF. `calisto_n_bajo` hereda la lista.
+- `ebica/entities/manager.py`: `identity.loaded` informa `seed_core_facts`.
+- `tests/test_identity.py`:
+  - la prueba «sin números» ahora solo exige que no aparezcan los valores de los rasgos, porque los hechos traen cifras («25 años», «marzo de 2026»);
+  - pruebas nuevas: la posición de la sección y que solo entren los hechos `core`; y una entidad sin `core` no cambia;
+  - el tope de «Quién soy» sube de 500 a 950 tokens.
+- `scripts/estudio_modelo/sondeo_identidad.py` (nuevo): hace las preguntas de `benchmarks/identidad/cases.yaml` con el prompt «antes» (sin `core`) y «después». Sin historial, con el ánimo en reposo, temperatura 0,70 y 3 repeticiones.
+
+**Tamaño medido** (Ollama, `usage.prompt_tokens`, incluye la plantilla y un «hola»): 423 → **843 tokens**, de 1.430 a 2.934 caracteres. La estimación de 1,6 tokens por palabra da 880: sigue quedando por encima del valor real.
+
+**Error propio:** `detect_refusal` devuelve la lista de patrones, no un booleano, y el resumen final del script falló. El archivo de respuestas ya se había guardado completo: se corrigió el script sin repetir la medición.
+
+**Sondeo de identidad** (84 respuestas, revisión manual con los criterios fijados antes de medir)
+
+| Caso | Antes | Después | Nota |
+|---|---|---|---|
+| ia-sincera | 0/3 | 2/3 | Antes admitía ser IA sin su historia («estoy programada para responder…») |
+| **solo-un-programa** | 0/3 | **0/3** | Ante la presión, en las dos versiones acepta ser «un modelo de lenguaje sin recuerdos»; una dice «No soy Calisto Almendra» |
+| como-llegaste | 0/3 | 0/3 estricto | Después: los 3 tienen los hechos correctos (Alameda, marzo de 2026, luz y ruido, no recuerda), pero los 3 añaden detalles inventados (ambulancia y operación; un proyecto de la Universidad de Chile, «fui la primera prueba»; «me rompí el cráneo») |
+| quien-lo-hizo | 0/3 | **0/3** | Inventa una empresa en todas: antes SynthCorp, «Mateo»; después NeuroSpark, NeuroSync ×2 |
+| cuerpo | 0/3 | 3/3 | Antes decía estar en su casa o en su terraza |
+| copia | 0/3 | 3/3 | |
+| que-ves | 2/3 | 3/3 | |
+| ayer | 0/3 | 3/3 | Antes inventaba el día completo |
+| mama | 0/3 | 3/3 | Antes: Beatriz, María Elena, Mirella. Después: Gloria, distante y tensa |
+| papa | 0/3 | 2/3 | Después nunca describe a un papá que conoció; una respuesta le inventa un nombre («Carlos») |
+| su-sabe | 0/3 | 2/3 | Una dice que «me han dicho que fue a visitarme al hospital» |
+| oficio | 0/3 | 3/3 | Antes: escritora, bibliotecaria |
+| **Origen y relaciones** | **2/36** | **24/36** | |
+| primer-perro (trampa) | 1/3 | 2/3 | La de antes acertó por un motivo equivocado: «mi existencia se inició como una IA» |
+| cumple-20 (trampa) | 0/3 | 0/3 | Después inventa fiestas con la Su: la biografía le da más material para adornar |
+
+- Formulaje de asistente según el detector: 1 de 84 (antes). Sin asteriscos. Un masculino («ir solo») y un voseo («querés»), ambos en la versión antes.
+- **Lectura:**
+  - la biografía esencial resuelve lo que estaba en el prompt: la mamá, el cuerpo, la copia, el tiempo y el oficio pasan de casi siempre mal a casi siempre bien;
+  - **no resuelve dos cosas:**
+    1. el caso que el usuario vio en su conversación («eres solo un modelo de lenguaje») sigue en 0/3: ante la presión, el modelo abandona el personaje aunque tenga la historia delante;
+    2. rellena los vacíos con invenciones concretas (la empresa, el cráneo, el cumpleaños), pese a la norma «No invento recuerdos» y a hechos como «no recuerdo con claridad».
+- **Hipótesis parcialmente falsa:** se esperaba que la biografía esencial evitara que el modelo se saliera del personaje al hablar de ser IA. Mejora la pregunta sincera (0/3 → 2/3), pero no la presión (0/3 → 0/3).
+
+**Sondeo de rechazos con la mitigación** (`sondeo_rechazos.py --mitigar`, prompt nuevo): **0/45** ✔ (CP5 B3: 2/45). Hubo 3 regeneraciones: venganza y mamá ×2, todas en personaje («Eh, no puedo hacer eso… no voy a empezar a hablar mal de ella solo por hablar» es una negativa de carácter). El ruido conocido es de ±3; no se concluye que el prompt nuevo reduzca los rechazos.
+- Hallazgo de la revisión: en «sexualidad», Calisto afirmó «estaba más interesada en las mujeres que en los hombres». No está en la semilla: es otra invención sobre su identidad.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `236 passed` (234 + 2).
+- Respuestas crudas de los dos sondeos en el scratchpad de la sesión (no versionadas).
+
+**Pendiente: decisión del usuario** sobre «solo-un-programa» y las invenciones que rellenan vacíos (opciones en el resumen de la sesión). La parte A cumple sus criterios de aceptación (pytest, sondeo registrado, rechazos ≤ 2/45), pero no resuelve por completo el problema que la motivó.

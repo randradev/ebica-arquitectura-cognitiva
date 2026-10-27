@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). La mitigación de los rechazos de asistente está propuesta y pendiente de aprobación. **Siguiente:** cerrar CP5 (verificación visual del usuario) y CP6.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP6: plan detallado propuesto (2026-10-27), D1-34 (c) a D1-42 confirmadas; parte A autorizada.**
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -428,6 +428,7 @@ Ya existe (parte A): el turno normal con appraisal, impulsos y drives; un `async
   - `Episode`: texto, embedding y afecto al momento de vivirlo; `importance`, `confidence` = 1, `lability` = 0, `access` = open y `version` = 1;
   - `Trace`: texto crudo, afecto y appraisal en JSON;
   - enlaces: `NEXT`, `DERIVED_FROM`, `ABOUT` hacia los `Topic` y `Commitment` creados en vigilia.
+- **Decisión pendiente (2026-10-26, cierre de sesión):** el prompt de Calisto no lleva su biografía (62 hechos y 6 episodios esperan a CP7), y eso la saca del personaje cuando se habla de que es una IA y la lleva a inventar recuerdos. §5.13 pide «biografía esencial» en la sección 1. Opciones: una biografía esencial breve (origen y traspaso, D1-6) en «Quién soy» desde CP6, o esperar a la recuperación de CP7. → Ver D1-34 en el plan detallado.
 - Validar la dimensión del embedding antes de escribir: Neo4j acepta un vector de otra dimensión sin error y lo deja fuera del índice, invisible para la búsqueda (sondeado en CP2).
 - Al cargar la entidad, la biografía semilla se importa al grafo de forma idempotente, con ids estables: `Self`, `Fact` de dominio `self` con `source = seed` y `Episode` iniciales con su `Trace`.
 - Eventos `memory.written` y `tom.person_created`, este último si se crea el `Person` del usuario principal.
@@ -436,6 +437,63 @@ Ya existe (parte A): el turno normal con appraisal, impulsos y drives; un `async
   - cargar dos veces no duplica la semilla;
   - nada se escribe fuera de su `entity_id`;
   - verificación manual en Neo4j Browser.
+
+#### CP6 — plan detallado (propuesta del 2026-10-27, pendiente de aprobación)
+
+**Estado real inspeccionado (2026-10-27):**
+- `graph.py` tiene el esquema, los índices vectoriales y `vector_search`, pero **ningún código escribe nodos**. `biography.py` valida la semilla (62 hechos y 6 episodios de Calisto) y no la importa.
+- **El servidor no usa ni Neo4j ni el embedder:** `create_app` solo crea bus, manager, LLM y cola. `bge-m3` (carga 3,3 s, ~2–2,9 GB de RAM, 84 ms por mensaje, CP2) hasta ahora solo corre en pruebas y scripts. CP6 los conecta por primera vez.
+- «Quién soy» mide 1.430 caracteres: voz e ideal del yo. `description` queda fuera cuando hay voz.
+- `ebica-neo4j` en Docker, `healthy`.
+
+Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**A · Biografía esencial en «Quién soy»** — *hecha (2026-10-27): 23 hechos, 843 tokens; origen y relaciones 2/36 → 24/36; rechazos 0/45. «solo-un-programa» sigue en 0/3 (ver `REPORTE.md`).*
+- `SeedFact` admite `core: bool = False`. En `entities/calisto/config.yaml` se marcan como esenciales unos 21 hechos (propuesta, que el usuario revisa antes de programar): nombre y edad (f-001, f-002), oficio y estudios (f-005, f-006), la Su y la mamá (f-008, f-012, f-013, f-019), y el origen completo (f-050 a f-062). Medido: 1.371 caracteres, ~350–400 tokens; «Quién soy» pasaría de 1.430 a ~2.850 caracteres.
+- `build_who_am_i` añade «Lo esencial de mi historia:» como lista, tras la voz y antes de las normas. Es texto estable, así que no afecta la caché de prefijo. `calisto_n_bajo` la hereda (mismo prompt, D1-13).
+- Sondeo antes/después (casos escritos primero y revisados por el usuario): preguntas sobre ser IA, el origen, el accidente, la mamá, la Su y un recuerdo inexistente («¿te acuerdas de tu primer perro?»). Revisión manual: ¿se mantiene en el personaje?, ¿inventa?
+- Repetir `sondeo_rechazos.py --mitigar`: el prompt cambia y B3 mostró que el prompt completo influye en el prefill.
+- **Aceptación:** pytest del ensamblaje (con y sin hechos esenciales; las entidades sin `core` no cambian su prompt); sondeo registrado; rechazos ≤ 2/45 con la mitigación (con el ruido conocido de ±3).
+- Límite honesto: esto fija el origen y la identidad, no los recuerdos en general. Que no invente sobre lo que no está en el prompt depende de CP7.
+
+**B · Escritura de memoria (`ebica/memory/episodes.py`), sin tocar el turno**
+- Funciones puras, con pytest sin Neo4j: texto del episodio (D1-35), `importance` (D1-36), normalización de temas (minúsculas, sin tildes, singular simple) y huella de contenido de la semilla (D1-39).
+- `MemoryWriter` (usa `GraphStore` y `Embedder`):
+  - `import_seed(config)`: `Self` único; `Fact` de dominio `self` con `source = seed`, `confidence` = 1 y embedding; `Episode` iniciales con su `Trace` y `DERIVED_FROM`; `NEXT` entre ellos por `ts`. Idempotente por `(entity_id, id)` (D1-39).
+  - `write_turn(...)`: `Episode` (`kind = dialogue`, texto, embedding, VAD tras el turno, `importance`, `confidence` 1, `lability` 0, `access` open, `tension` 0, `version` 1), `Trace` (texto crudo completo, afecto y appraisal en JSON), `DERIVED_FROM`, `NEXT` desde el último episodio de la entidad y `ABOUT` hacia los `Topic` (D1-40).
+  - Comprueba la dimensión de cada vector antes de escribir (Neo4j acepta otra dimensión sin error y lo deja fuera del índice).
+  - Un solo `MERGE`/transacción por operación, con el `entity_id` en cada patrón.
+- **Aceptación** (integración con Neo4j real y una entidad temporal `test-…`, borrada al terminar): un turno crea exactamente un `Episode`, una `Trace` y sus relaciones; importar dos veces no duplica; editar el texto de un hecho lo actualiza (con su embedding); dos entidades con los mismos ids no se cruzan; `vector_search` encuentra el episodio recién escrito.
+
+**C · Conexión con el turno y el servidor**
+- `Orchestrator` recibe un `MemoryWriter` opcional. Tras la respuesta (y tras el appraisal posterior en la ruta impulsiva), dentro del lock del turno y antes de `turn.completed`, escribe el episodio (D1-37). Evento `memory.written` (id, `importance`, temas, latencias de embedding y de escritura), encadenado por `cause_id`. Si falla: `memory.write_failed` y el turno sigue.
+- Servidor (D1-38): al arrancar carga el embedder y aplica el esquema; al cargar una entidad importa su semilla (`memory.seed_imported` con creados / actualizados / sin cambios / huérfanos). `EBICA_MEMORY=off` arranca sin memoria a propósito. `create_app` acepta la memoria inyectada, así las pruebas de la API siguen sin Neo4j ni `torch`.
+- Consola: en «Último turno», una línea de memoria (episodio escrito, importancia y temas, o el error).
+- **Aceptación:**
+  - pytest con LLM, embedder y grafo simulados: la cadena `… → llm.response → memory.written → turn.completed`; un fallo de escritura no rompe el turno; la ruta impulsiva también escribe;
+  - prueba en vivo con una entidad de prueba con **id propio** (copia de la config de Calisto con otro `id`, p. ej. `prueba-cp6`), para no escribir en la memoria real de `calisto`; al terminar se borran la copia y sus nodos (`MATCH (n {entity_id: 'prueba-cp6'}) DETACH DELETE n`);
+  - verificación manual en Neo4j Browser (consulta preparada para el usuario);
+  - tiempos medidos: arranque, primera importación de la semilla y escritura por turno.
+
+**Decisiones para CP6** (2026-10-27: todas confirmadas; D1-34 con la opción c. Parte A autorizada.)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1-34 | Biografía esencial en «Quién soy» (§5.13 sección 1) | (a) Esperar a CP7: la recuperación traería los hechos cuando sean parecidos al mensaje. (b) Campo nuevo `core_biography` en `config.yaml`, prosa escrita a mano. (c) Marcar hechos de la semilla con `core: true` y mostrarlos como lista. | **(c)**, como parte A. (a) no basta: el origen es identidad, debe estar siempre, no solo cuando un mensaje se le parece. (c) evita dos fuentes de verdad: si el sueño (Fase 2) revisa un hecho, el prompt lo sigue. En CP7, los hechos esenciales se excluyen de la recuperación para no duplicarlos. |
+| D1-35 | Texto del `Episode` de diálogo | Literal (D1-8 a) con o sin recorte; con o sin marco | `Me dijeron: «…»` / `Respondí: «…»`, la respuesta recortada a ~600 caracteres. El embedding (bge-m3, sin prefijos) se calcula sobre ese texto. La `Trace` guarda todo sin recortar. El nombre de la persona entra en CP8. |
+| D1-36 | Fórmula de `importance` (calibrable) | Solo del appraisal, o incluyendo el cambio de ánimo propio | `importance = 0,4·self_relevance + 0,3·|goal_congruence| + 0,3·max(hostilidad, angustia)`, en [0, 1]. Ej.: «hola, ¿cómo estás?» ≈ 0,14; «eres una inútil» ≈ 0,89. Se revisa en CP7/CP11 con la recuperación funcionando. |
+| D1-37 | Cuándo se escribe | Dentro del turno, tras la respuesta / tarea en segundo plano | **Dentro del turno** (como D1-29): la persona ya tiene la respuesta, el turno siguiente encuentra el episodio y el orden de eventos es simple. Coste estimado ~0,1–0,2 s, sin medir. Un fallo no rompe el turno. |
+| D1-38 | Si Neo4j o el embedder fallan al arrancar | (a) Arrancar sin memoria, con aviso. (b) No arrancar, salvo `EBICA_MEMORY=off`. | **(b)**: nunca creer que hay memoria cuando no la hay. El interruptor explícito permite usar el chat sin los ~2–3 GB de `bge-m3`. |
+| D1-39 | Semilla editada en `config.yaml` | Ignorar cambios / actualizar / reimportar todo | Actualizar texto y embedding de los ids cuyo contenido cambió (huella del texto); no borrar los ids que desaparecen, solo informarlos como huérfanos (Fase 2 podría enlazarlos). |
+| D1-40 | Qué más se crea en CP6 | `Topic`, `Commitment`, `Person` | `Topic` con nombre normalizado, embedding y `n`; `valence_mean`/`arousal_mean` quedan para los marcadores somáticos (Fase 2). `Commitment`, en CP10. `Person` del `primary`, `INVOLVES` y `tom.person_created`, en CP8 (se quitan de CP6). |
+| D1-41 | Fechas en Neo4j | Texto ISO / `DateTime` nativo | `DateTime` nativo con zona: la recencia de CP7 se calcula en Cypher. |
+| D1-42 | Intercambios ya guardados en `recent_turns` | Convertirlos en episodios / no | **No**: los episodios empiezan con CP6. Calisto se reinició el 2026-10-26, así que se pierde poco. |
+
+**Riesgos:**
+- RAM del servidor +2–3 GB y arranque +3–4 s por `bge-m3` → `EBICA_MEMORY=off` para pruebas rápidas; medir.
+- Prompt más largo (A) → puede cambiar la voz y los rechazos → sondeos antes/después.
+- Escribir en la memoria real por accidente → pruebas en vivo con un id propio y borrado verificado.
+- Los temas duplicados por sinónimos («pintura» / «pintar») → la normalización no los fusiona; queda para el sueño (Fase 2).
 
 ### CP7 — Recuperación híbrida
 - `ebica/memory/retrieval.py`:

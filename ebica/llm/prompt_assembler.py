@@ -2,7 +2,7 @@
 Prompt Assembler (documento base §5.13).
 
 Secciones de Fase 1 hasta CP5:
-1. «Quién soy»: la voz y el ideal del yo (CP3).
+1. «Quién soy»: la voz, la biografía esencial (CP6, D1-34) y el ideal del yo (CP3).
 2. «Cómo me siento ahora»: el VAD y los drives traducidos a palabras (CP5).
 8. La conversación reciente, como mensajes alternados (CP5, D1-24).
 Los recuerdos (4–5), el PartnerModel (6) y «Cómo expresarme» (7) llegan en CP7–CP9.
@@ -21,6 +21,8 @@ from ebica.affect.drives import DRIVE_THRESHOLD
 from ebica.affect.vad import VAD
 from ebica.core.state import ConversationTurn, EntityConfig
 
+# Encabezado de la biografía esencial (hechos con `core: true`, D1-34).
+CORE_BIOGRAPHY_HEADER = "Lo esencial de mi historia:"
 # Encabezado de las normas del ideal del yo en el prompt.
 EGO_IDEAL_HEADER = "Mis normas, lo que intento sostener:"
 # Encabezado de la sección 2.
@@ -60,16 +62,22 @@ def build_who_am_i(config: EntityConfig) -> str:
     """
     Sección «Quién soy» de una entidad con identidad de Fase 1.
 
-    Lleva el nombre, la voz (`persona`) y las normas del ideal del yo. La
-    descripción solo entra si no hay voz: lo biográfico vive en la memoria
-    (los hechos de la semilla) y se recupera cuando es relevante, en vez de
-    ocupar el presupuesto de tokens en cada turno.
+    Lleva el nombre, la voz (`persona`), la biografía esencial y las normas
+    del ideal del yo. La descripción solo entra si no hay voz. De la biografía
+    entran solo los hechos marcados `core` (D1-34): lo que define quién es
+    (su origen, sus relaciones) tiene que estar siempre, no solo cuando un
+    mensaje se le parece. El resto vive en la memoria y se recupera cuando es
+    relevante (CP7), en vez de ocupar el presupuesto de tokens en cada turno.
     """
     parts = [f"Eres {config.name}."]
     if config.persona:
         parts.append(config.persona.strip())
     elif config.description:
         parts.append(config.description.strip())
+    core_facts = config.seed_biography.core_facts
+    if core_facts:
+        facts = "\n".join(f"- {fact.text}" for fact in core_facts)
+        parts.append(f"{CORE_BIOGRAPHY_HEADER}\n{facts}")
     if config.ego_ideal:
         norms = "\n".join(f"- {norm}" for norm in config.ego_ideal)
         parts.append(f"{EGO_IDEAL_HEADER}\n{norms}")

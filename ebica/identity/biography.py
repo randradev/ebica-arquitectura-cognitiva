@@ -19,12 +19,19 @@ SEED_ID_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 
 
 class SeedFact(BaseModel):
-    """Un hecho atómico que la entidad sabe de sí misma (una idea por hecho)."""
+    """
+    Un hecho atómico que la entidad sabe de sí misma (una idea por hecho).
+
+    `core` marca la biografía esencial (§5.13, sección 1; D1-34): lo que define
+    quién es y va siempre en «Quién soy». El resto se recupera de la memoria
+    solo cuando viene al caso (CP7).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=SEED_ID_PATTERN)
     text: str = Field(min_length=1)
+    core: bool = False
 
 
 class SeedEpisode(BaseModel):
@@ -67,6 +74,11 @@ class SeedBiography(BaseModel):
     def is_empty(self) -> bool:
         """True si no hay ni hechos ni episodios."""
         return not self.facts and not self.episodes
+
+    @property
+    def core_facts(self) -> list[SeedFact]:
+        """Los hechos de la biografía esencial, en el orden del archivo."""
+        return [fact for fact in self.facts if fact.core]
 
 
 class PrimaryPerson(BaseModel):

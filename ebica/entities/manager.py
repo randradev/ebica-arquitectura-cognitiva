@@ -43,6 +43,7 @@ def identity_payload(config: EntityConfig) -> dict:
         "parameters": derive_parameters(traits).as_dict(),
         "ego_ideal_norms": len(config.ego_ideal),
         "seed_facts": len(config.seed_biography.facts),
+        "seed_core_facts": len(config.seed_biography.core_facts),
         "seed_episodes": len(config.seed_biography.episodes),
         "primary_person": config.primary_person.id if config.primary_person else None,
         "discloses_artificial": config.discloses_artificial,

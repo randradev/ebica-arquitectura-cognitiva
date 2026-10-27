@@ -18,16 +18,18 @@ from ebica.core.state import EntityConfig
 from ebica.entities.manager import EntityConfigError, EntityManager
 from ebica.identity.biography import SeedBiography
 from ebica.identity.traits import Traits, derive_parameters
-from ebica.llm.prompt_assembler import EGO_IDEAL_HEADER, build_system_prompt
+from ebica.llm.prompt_assembler import CORE_BIOGRAPHY_HEADER, EGO_IDEAL_HEADER, build_system_prompt
 
 REPO_ENTITIES_DIR = Path(__file__).resolve().parent.parent / "entities"
 
 # Rasgos de Calisto (PLAN D1-5, revisada).
 CALISTO = Traits(O=0.95, C=0.30, E=0.85, A=0.40, N=0.75)
 
-# CONSTANTE: tope de tokens de «Quién soy» (PLAN CP3: objetivo de 300–500).
-# Se estima con 1,6 tokens por palabra, medido con Ollama en CP3 (411 tokens reales).
-WHO_AM_I_MAX_TOKENS = 500
+# CONSTANTE: tope de tokens de «Quién soy». En CP3 era 500 (voz + ideal del yo,
+# 411 tokens reales); CP6 sumó la biografía esencial (D1-34): 843 tokens reales
+# medidos con Ollama, contando la plantilla y un «hola». Se estima con 1,6
+# tokens por palabra, que en ambas mediciones quedó por encima del valor real.
+WHO_AM_I_MAX_TOKENS = 950
 TOKENS_PER_WORD = 1.6
 
 
@@ -203,6 +205,7 @@ def test_identity_loaded_reports_traits_and_parameters(repo_manager):
     assert identity.payload["traits"]["N"] == 0.75
     assert identity.payload["parameters"]["h_neg_minutes"] == pytest.approx(42.5)
     assert identity.payload["seed_facts"] == 62
+    assert identity.payload["seed_core_facts"] == 23
     assert identity.payload["primary_person"] == "ricardo"
     assert "Gloria" not in str(identity.payload)
 
@@ -210,7 +213,7 @@ def test_identity_loaded_reports_traits_and_parameters(repo_manager):
 # --------------------------------------------------------------- «Quién soy»
 
 
-def test_who_am_i_has_voice_and_norms_without_numbers(repo_manager):
+def test_who_am_i_has_voice_and_norms_without_trait_numbers(repo_manager):
     """El prompt lleva la voz y el ideal del yo, sin rasgos en números ni la descripción."""
     config = repo_manager.load("calisto").config
     prompt = build_system_prompt(config)
@@ -219,7 +222,41 @@ def test_who_am_i_has_voice_and_norms_without_numbers(repo_manager):
     assert config.persona.split(".")[0] in prompt
     assert EGO_IDEAL_HEADER in prompt and config.ego_ideal[-1] in prompt
     assert config.description not in prompt
-    assert not any(char.isdigit() for char in prompt)
+    # Los hechos esenciales traen cifras («25 años», «marzo de 2026»); lo que no
+    # debe aparecer son los rasgos (D1-13).
+    for value in config.traits.model_dump().values():
+        assert str(value) not in prompt and str(value).replace(".", ",") not in prompt
+
+
+def test_who_am_i_has_only_core_biography_between_voice_and_norms(repo_manager):
+    """D1-34: los hechos `core` van tras la voz y antes de las normas; los demás no entran."""
+    config = repo_manager.load("calisto").config
+    prompt = build_system_prompt(config)
+    facts = {fact.id: fact for fact in config.seed_biography.facts}
+
+    assert len(config.seed_biography.core_facts) == 23
+    for fact in config.seed_biography.core_facts:
+        assert f"- {fact.text}" in prompt
+    assert facts["f-004"].text not in prompt  # «Soy Piscis.», no esencial
+    assert facts["f-038"].core  # «Soy feminista y de izquierda.», pedido por el usuario
+    assert (
+        prompt.index(config.persona.split(".")[0])
+        < prompt.index(CORE_BIOGRAPHY_HEADER)
+        < prompt.index(EGO_IDEAL_HEADER)
+    )
+
+
+def test_biography_without_core_facts_adds_no_section():
+    """Sin hechos marcados, «Quién soy» no cambia: `core` es falso por defecto."""
+    config = EntityConfig(
+        id="aurora", name="Aurora", persona="Soy reservada.", ego_ideal=["No miento."],
+        seed_biography=SeedBiography(facts=[{"id": "f-1", "text": "Restauro muebles."}]),
+    )
+
+    assert not config.seed_biography.facts[0].core
+    assert config.seed_biography.core_facts == []
+    assert CORE_BIOGRAPHY_HEADER not in build_system_prompt(config)
+    assert "Restauro muebles." not in build_system_prompt(config)
 
 
 def test_variants_get_the_same_prompt(repo_manager):
