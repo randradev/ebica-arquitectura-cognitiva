@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones).
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -635,7 +635,7 @@ Cuatro partes, cada una con validación, entrada en el `REPORTE` y pausa:
 - **Sondeo de envejecimiento (D1-59):** `benchmark_recuerdo.py` sobre `dev` con el reloj adelantado 30 días (la recencia queda ≈ 0 para todo). Pregunta: ¿las confidencias con importancia 0 pierden frente al resto? Requiere una opción nueva en el script.
 - **Pausa:** el usuario revisa los casos y la línea base, y decide D1-59.
 
-**B · Personas y PartnerModel en la memoria (sin tocar el turno)**
+**B · Personas y PartnerModel en la memoria (sin tocar el turno)** — *hecha (2026-10-28): 21 pruebas nuevas, recuerdo sin regresión (`test` 14/16). El texto de la sección 6 pasa a C (ver `REPORTE.md`).*
 - `ebica/social/partner.py` (nuevo, §10), con funciones puras y pytest sin Neo4j:
   - `PartnerNow` a partir del appraisal: emoción, intención, foco (temas), angustia y hostilidad;
   - `PartnerModel` y su actualización por turno (D1-54);

@@ -1571,3 +1571,60 @@ El usuario hizo commit de la parte B (`6b31467`) antes de esta entrada.
 **Limpieza:** servidor detenido; nodos de las 4 entidades borrados; carpeta temporal borrada. Neo4j conserva solo los 201 nodos de `calisto`, intactos. El puerto 8011 quedó libre.
 
 **Parte A completa.** Los resultados crudos (JSON y tablas) quedaron en el scratchpad de la sesión; no se versionan.
+
+---
+
+## 2026-10-28 · CP8 parte B — Personas y PartnerModel en la memoria
+
+El usuario hizo commit de la parte A antes de esta entrada.
+
+**Cambios**
+- `ebica/social/partner.py` (nuevo, §10), con funciones puras:
+  - `PartnerNow.from_appraisal`: emoción, intención, foco (temas normalizados), angustia y hostilidad de quien habla en el turno;
+  - `PartnerModel` (D1-54): `n`, `first_met`, `last_seen`, medias de valencia y alerta, conteos de temas y de temas sensibles, confianza y `primary`. Expone `top_topics` (5), `top_sensitive` (3) y `summary()` para eventos;
+  - `update_partner_model`:
+    - la primera vez, la emoción observada; después, media móvil con α 0,2;
+    - temas sensibles: los de mensajes con angustia ≥ 0,6;
+    - se guardan como máximo 30 temas;
+  - `new_person_id` (D1-52: «Ana María» → `ana-maria`; un nombre repetido, aunque cambien mayúsculas o tildes, lanza `DuplicatePersonError`; si solo choca el id, se numera) y `normalize_name`;
+  - confianza inicial de una persona nueva: 0,2 (D1-55).
+- `ebica/memory/people.py` (nuevo): `PeopleStore` con `list`, `get`, `ensure_primary` y `create`.
+  - Propiedades de §7.2 (`known_via: direct`, `provisional: false`…) más `model_json` con fechas y conteos.
+  - `ensure_primary` es idempotente: al recargar, sincroniza nombre y confianza con la config sin borrar lo aprendido. Si la config cambia de `primary`, el anterior deja de serlo.
+- `ebica/memory/episodes.py`:
+  - `episode_text(..., speaker=)` (D1-56): «Ricardo me dijo: «…»» / «Le respondí: «…»». Sin persona se conserva el formato de CP6;
+  - `write_turn(..., person=)` recibe el modelo **ya actualizado** y, en la misma consulta, crea `INVOLVES` (episodio → persona) y `SPOKEN_BY` (huella → persona) y guarda el `Person`. Calcular es de `social`; escribir, de `memory`.
+- `ebica/memory/retrieval.py` (D1-58):
+  - `retrieve(..., person_id=, mentioned_names=)` suma como candidatos los 20 episodios más recientes con la persona activa y con las personas conocidas que el mensaje nombra (comparación sin mayúsculas ni tildes);
+  - la fuente queda como `"person"`;
+  - pasan por el mismo umbral y el mismo puntaje.
+- `scripts/benchmark_recuerdo.py`: la sesión la cuenta el `primary` (Ricardo) y la recuperación usa la persona activa y los nombres mencionados, como hará el turno. `--sin-personas` mide como en CP7.
+- **Ajuste respecto del plan:** el texto de la sección 6 pasa a la parte C, al Prompt Assembler, que es donde se traducen los números a palabras (como `describe_feelings`).
+- **Dependencias entre módulos:** `social.partner` usa `normalize_topics` de `memory.episodes`. Por eso `episodes` importa `PartnerModel` solo para los tipos, y `people` de forma diferida. No hay importaciones circulares.
+
+**Pruebas** (`tests/test_partner.py`, nuevo, 21: 11 unitarias y 10 de integración)
+- Unitarias: `partner_now`, la media móvil, el conteo y el tope de temas, los temas sensibles, la confianza, los ids (incluida la ñ y los choques), el nombre repetido y el texto con el nombre.
+- Integración con Neo4j:
+  - cargar dos veces crea un solo `primary`;
+  - el cambio de `primary` deja uno solo;
+  - una persona nueva se crea con nombre;
+  - un turno escribe `INVOLVES`, `SPOKEN_BY` y el `Person`;
+  - **dos personas sin cruces** (cada modelo solo con sus temas; ningún episodio enlazado a dos personas);
+  - un turno sin persona no crea enlaces;
+  - otra entidad no ve las personas;
+  - un episodio con la persona activa entra aunque esté fuera del top-20 vectorial; un nombre mencionado («ÁNA») trae los episodios de Ana; los vecinos sin parecido no entran.
+- **Error propio, corregido:** el ayudante de una prueba creaba un `Person` sin nombre, y la recuperación fallaba al compararlo. La recuperación ahora ignora nombres vacíos y el ayudante pone el nombre.
+- Comando: `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `314 passed` (293 + 21).
+
+**Regresión del recuerdo**, con `bge-m3`, Neo4j y el appraisal reales, y el nombre en el texto
+
+| Split | CP7 (sin personas) | CP8 B |
+|---|---|---|
+| `dev` | 10/10, controles 0/2 (sondeo de A) | **10/10, controles 0/2** |
+| `test` (una vez, sin ajustar) | 14/16, controles 2/4 | **14/16, controles 2/4** |
+
+- Mismos fallos que en CP7: t-valpo (bajo el umbral), t-orden (f-046), y los controles t-clima y t-gracias.
+- El nombre casi no mueve la similitud: perro 0,579 → 0,574; hermana 0,604 → 0,606; comida 0,662 → 0,663; quiltro 0,516 → 0,508.
+- El efecto de D1-56 en la confusión de la fuente se medirá en la parte C, con el LLM.
+
+**Memoria real:** sin cambios (`calisto`, 201 nodos, 0 `Person`).

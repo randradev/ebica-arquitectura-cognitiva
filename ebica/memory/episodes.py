@@ -7,12 +7,14 @@ Dos operaciones, las únicas que escriben en vigilia (§7.1):
   la entidad muchas veces no duplica nada (D1-39).
 - `write_turn`: tras cada turno, un `Episode` (el recuerdo que la entidad
   evocará) y su `Trace` (la huella cruda, que la entidad nunca consulta), con
-  los enlaces `NEXT`, `DERIVED_FROM` y `ABOUT` hacia los `Topic`.
+  los enlaces `NEXT`, `DERIVED_FROM` y `ABOUT` hacia los `Topic`. Desde CP8,
+  también `INVOLVES` y `SPOKEN_BY` hacia el `Person` de quien habló, cuyo modelo
+  se guarda en la misma transacción.
 
 Los hechos no se crean en vigilia (salvo la semilla): si el usuario cuenta
 algo, la entidad lo recuerda a través del episodio hasta que el sueño de Fase 2
-lo semantice. Los `Commitment` llegan en CP10 y las `Person`, en CP8 (D1-40).
-Recuperar lo escrito es trabajo de CP7.
+lo semantice. Los `Commitment` llegan en CP10. Crear y leer las `Person` es
+tarea de `people.py` (CP8). Recuperar lo escrito es trabajo de CP7.
 """
 
 import hashlib
@@ -22,12 +24,17 @@ import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from ebica.affect.vad import VAD
 from ebica.identity.biography import SeedBiography, SeedEpisode, SeedFact
 from ebica.memory.graph import GraphStore
 from ebica.perception.appraisal import Appraisal
 from ebica.perception.embeddings import Embedder
+
+if TYPE_CHECKING:
+    # Solo para los tipos: `social.partner` importa `normalize_topics` de este módulo.
+    from ebica.social.partner import PartnerModel
 
 # CONSTANTE: largo máximo de la respuesta dentro del texto del episodio (D1-35).
 # El recuerdo guarda lo esencial; la huella guarda la respuesta completa.
@@ -51,17 +58,24 @@ DIALOGUE_KIND = "dialogue"
 # ------------------------------------------------------------ funciones puras
 
 
-def episode_text(user_text: str, entity_text: str, limit: int | None = RESPONSE_MAX_CHARS) -> str:
+def episode_text(
+    user_text: str, entity_text: str, limit: int | None = RESPONSE_MAX_CHARS, speaker: str | None = None
+) -> str:
     """
-    Texto de un episodio de diálogo (D1-35): qué me dijeron y qué respondí.
+    Texto de un episodio de diálogo (D1-35, D1-56): quién me dijo qué y qué respondí.
 
-    Va en primera persona porque es el recuerdo de la entidad. Con `limit`, la
-    respuesta se recorta (el recuerdo); con `None`, queda completa (la huella).
-    El nombre de quien habló entra en CP8, con el PartnerModel.
+    Va en primera persona porque es el recuerdo de la entidad. Con `speaker`,
+    dice quién habló («Ricardo me dijo: …»): así, al recordarlo, la entidad
+    sabe que la experiencia contada es de esa persona y no suya (la confusión
+    de la fuente de CP7 C). Sin él (memoria sin personas), «Me dijeron». Con
+    `limit`, la respuesta se recorta (el recuerdo); con `None`, queda completa
+    (la huella).
     """
     response = entity_text.strip()
     if limit is not None and len(response) > limit:
         response = response[:limit].rstrip() + "…"
+    if speaker:
+        return f"{speaker} me dijo: «{user_text.strip()}»\nLe respondí: «{response}»"
     return f"Me dijeron: «{user_text.strip()}»\nRespondí: «{response}»"
 
 
@@ -256,6 +270,11 @@ FOREACH (topic IN $topics |
     ON CREATE SET tp.embedding = topic.embedding, tp.n = 0
     SET tp.n = tp.n + 1
     MERGE (e)-[:ABOUT]->(tp))
+FOREACH (person IN CASE WHEN $person IS NULL THEN [] ELSE [$person] END |
+    MERGE (p:Person {{entity_id: $entity_id, id: person.id}})
+    SET p += person.props
+    CREATE (e)-[:INVOLVES]->(p)
+    CREATE (t)-[:SPOKEN_BY]->(p))
 RETURN previous.id AS previous_id
 """
 
@@ -361,6 +380,7 @@ class MemoryWriter:
         affect: VAD,
         appraisal: Appraisal,
         impulsive: bool = False,
+        person: "PartnerModel | None" = None,
     ) -> WrittenEpisode:
         """
         Escribe el recuerdo y la huella de un turno (§6.2, post-turno).
@@ -371,9 +391,19 @@ class MemoryWriter:
         (el último de la semilla, si es la primera conversación) y con `ABOUT`
         hacia los temas del appraisal; los temas nuevos se crean con su
         embedding y los existentes suman una aparición (`n`).
+
+        `person` es el modelo de quien habló, *ya actualizado* con este turno
+        (lo calcula `social.partner`): el episodio lleva su nombre (D1-56), se
+        enlaza con `INVOLVES` y la huella con `SPOKEN_BY` (en Fase 1 coinciden;
+        en Fase 2, con el modo Desconocido, pueden diferir), y el `Person` se
+        guarda en la misma transacción (D1-54). Sin `person`, nada de eso.
         """
+        # Importación diferida: `people` importa `social.partner`, que importa este módulo.
+        from ebica.memory.people import person_properties
+
         episode_id = f"ep-{uuid.uuid4().hex[:12]}"
-        text = episode_text(user_text, entity_text)
+        speaker = person.name if person is not None else None
+        text = episode_text(user_text, entity_text, speaker=speaker)
         topics = normalize_topics(appraisal.topics)
         known = {
             row["name"]
@@ -397,11 +427,12 @@ class MemoryWriter:
             ts=ts, text=text, embedding=vectors[0],
             valence=affect.valence, arousal=affect.arousal, dominance=affect.dominance,
             importance=importance,
-            raw_text=episode_text(user_text, entity_text, limit=None),
+            raw_text=episode_text(user_text, entity_text, limit=None, speaker=speaker),
             affect_json=_affect_json(affect.valence, affect.arousal, affect.dominance),
             appraisal_json=appraisal.model_dump_json(),
             route="impulsive" if impulsive else "normal",
             topics=[{"name": topic, "embedding": topic_vectors.get(topic)} for topic in topics],
+            person={"id": person.id, "props": person_properties(person)} if person is not None else None,
         )
         write_ms = (time.perf_counter() - started) * 1000
         return WrittenEpisode(

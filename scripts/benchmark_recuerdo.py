@@ -9,6 +9,11 @@ temas, y el recuperador elige con los parámetros de Calisto y su ánimo en
 reposo. Un caso acierta si alguno de sus `esperado` entra (episodio o hecho);
 un control acierta si no entra nada. La entidad se borra al terminar.
 
+Desde CP8 (D1-56, D1-58), la sesión la cuenta el `primary` de Calisto (Ricardo):
+cada episodio lleva su nombre y su `INVOLVES`, y la recuperación usa a Ricardo
+como persona activa y los nombres que menciona la pregunta, como el turno real.
+Con `--sin-personas`, se mide como en CP7 (para comparar).
+
 Con `--desfase-dias N` (CP8 A, sondeo de envejecimiento, D1-59), las preguntas
 se hacen N días después de lo normal: la recencia de la sesión se apaga y se ve
 si las confidencias con importancia 0 pierden frente al resto.
@@ -39,9 +44,11 @@ from ebica.identity.traits import derive_parameters  # noqa: E402
 from ebica.llm.client import LLMClient  # noqa: E402
 from ebica.memory.episodes import MemoryWriter, normalize_topics  # noqa: E402
 from ebica.memory.graph import GraphStore  # noqa: E402
+from ebica.memory.people import PeopleStore  # noqa: E402
 from ebica.memory.retrieval import MemoryRetriever  # noqa: E402
 from ebica.perception.appraisal import build_appraisal_messages, parse_appraisal  # noqa: E402
 from ebica.perception.embeddings import SentenceTransformerEmbedder  # noqa: E402
+from ebica.social.partner import PartnerNow, update_partner_model  # noqa: E402
 
 ENTITY_ID = "bench-recuerdo"
 CASES = ROOT / "benchmarks" / "recuerdo" / "cases.yaml"
@@ -65,6 +72,7 @@ async def main() -> None:
     parser.add_argument("--split", choices=["dev", "test"], required=True)
     parser.add_argument("--salida", type=Path)
     parser.add_argument("--desfase-dias", type=float, default=0.0)
+    parser.add_argument("--sin-personas", action="store_true")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     data = yaml.safe_load(CASES.read_text(encoding="utf-8"))
@@ -81,15 +89,20 @@ async def main() -> None:
         await graph.execute("MATCH (n {entity_id: $e}) DETACH DELETE n", e=ENTITY_ID)
         writer = MemoryWriter(graph, embedder)
         await writer.import_seed(ENTITY_ID, config.name, config.seed_biography)
+        person = None
+        if not args.sin_personas:
+            person = (await PeopleStore(graph).ensure_primary(ENTITY_ID, config.primary_person)).model
         async with LLMClient.from_env(EventBus()) as llm:
             # La sesión: un episodio por mensaje, con su appraisal real.
             episode_ids = {}
             for index, item in enumerate(data["sesion"]):
                 appraisal = await appraise(llm, config, item["mensaje"])
+                ts = now - SESSION_AGE + timedelta(minutes=index)
+                if person is not None:
+                    person = update_partner_model(person, PartnerNow.from_appraisal(appraisal), ts)
                 written = await writer.write_turn(
-                    ENTITY_ID, ts=now - SESSION_AGE + timedelta(minutes=index),
-                    user_text=item["mensaje"], entity_text=item["respuesta"],
-                    affect=REST_AFFECT, appraisal=appraisal,
+                    ENTITY_ID, ts=ts, user_text=item["mensaje"], entity_text=item["respuesta"],
+                    affect=REST_AFFECT, appraisal=appraisal, person=person,
                 )
                 episode_ids[written.episode_id] = item["id"]
                 print(f"  sesión {item['id']}: importancia {written.importance:.2f}, temas {written.topics}")
@@ -103,6 +116,8 @@ async def main() -> None:
                     ENTITY_ID, query, affect=REST_AFFECT, k=parameters.k_retrieval,
                     lambda_mmr=parameters.lambda_mmr, now=now + timedelta(days=args.desfase_dias),
                     topics=normalize_topics(appraisal.topics), excluded_fact_ids=core_ids,
+                    person_id=person.id if person is not None else None,
+                    mentioned_names=[p.name for p in appraisal.mentioned_people if p.name],
                     raise_lability=False,
                 )
                 episodes = [episode_ids.get(item.candidate.id, item.candidate.id) for item in result.episodes]

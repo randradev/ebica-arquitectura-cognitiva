@@ -3,8 +3,9 @@ Recuperación híbrida de la memoria (documento base §7.3; Fase 1, CP7).
 
 Antes de responder, la entidad «se acuerda» de lo que viene al caso:
 1. Candidatos: los episodios y hechos más parecidos al mensaje (índice
-   vectorial) y los episodios sobre los temas que detectó el appraisal (el
-   grafo, a un salto). `Person` se suma en CP8.
+   vectorial), los episodios sobre los temas que detectó el appraisal y los
+   episodios con la persona activa o con las personas conocidas que el
+   mensaje nombra (el grafo, a un salto; CP8, D1-58).
 2. Puntaje de cada episodio (§7.3, D1-44): parecido, recencia, importancia,
    congruencia con el ánimo y compromisos abiertos (0 hasta CP10).
 3. Selección: MMR hasta k episodios (k según la apertura O y el ánimo, D1-47)
@@ -24,6 +25,7 @@ from datetime import datetime
 
 from ebica.affect.vad import VAD
 from ebica.memory.graph import GraphStore
+from ebica.social.partner import normalize_name
 
 # CONSTANTES: pesos del puntaje de §7.3 (D1-44, iniciales; se ajustan con `dev`).
 W_SIMILARITY = 0.5
@@ -50,6 +52,10 @@ FACT_CANDIDATES = 10
 # valencia negativa) la atención se estrecha; con buen ánimo se abre.
 THREAT_AROUSAL, THREAT_VALENCE, GOOD_MOOD_VALENCE = 0.6, -0.1, 0.3
 K_MIN = 2
+# CONSTANTE: episodios más recientes con cada persona que entran como
+# candidatos (D1-58). Sin tope, la persona principal aportaría toda su
+# historia en cada turno; pasan igual por el umbral de parecido.
+PERSON_CANDIDATES = 20
 # CONSTANTE: caracteres del texto de lo elegido que van en el evento, para la consola.
 PREVIEW_CHARS = 120
 # CONSTANTES: aumento de la labilidad al evocar (D1-48): una base, más la
@@ -114,7 +120,7 @@ class EpisodeCandidate:
     arousal: float
     importance: float
     embedding: list[float]
-    # Por qué entró: "vector", "topic" o ambos.
+    # Por qué entró: "vector", "topic", "person" o varios.
     sources: set[str] = field(default_factory=set)
 
 
@@ -236,6 +242,16 @@ WHERE t.name IN $topics
 RETURN DISTINCT e.id AS id
 """
 
+# Los episodios más recientes con cada persona indicada (D1-58).
+_PERSON_NEIGHBOURS = """
+MATCH (p:Person {entity_id: $entity_id})<-[:INVOLVES]-(e:Episode {entity_id: $entity_id})
+WHERE p.id IN $person_ids
+WITH p, e ORDER BY e.ts DESC
+WITH p, collect(e.id)[..$limit] AS ids
+UNWIND ids AS id
+RETURN DISTINCT id
+"""
+
 _FACTS = """
 MATCH (f:Fact {entity_id: $entity_id})
 WHERE f.id IN $ids AND NOT f.id IN $excluded
@@ -270,6 +286,8 @@ class MemoryRetriever:
         topics: Sequence[str] = (),
         since: datetime | None = None,
         excluded_fact_ids: Sequence[str] = (),
+        person_id: str | None = None,
+        mentioned_names: Sequence[str] = (),
         raise_lability: bool = True,
     ) -> RetrievalResult:
         """
@@ -277,7 +295,10 @@ class MemoryRetriever:
 
         `topics` son los temas normalizados del appraisal; `since` excluye los
         episodios de diálogo que ya están en la conversación reciente;
-        `excluded_fact_ids`, los hechos esenciales que ya van en «Quién soy».
+        `excluded_fact_ids`, los hechos esenciales que ya van en «Quién soy»;
+        `person_id` (la persona activa) y `mentioned_names` (los nombres de
+        `mentioned_people` del appraisal) suman los episodios con esas
+        personas (D1-58), sin bono en el puntaje: compiten igual que el resto.
         Con `raise_lability=False` no escribe nada (el benchmark lo usa para
         poder repetir la medición).
         """
@@ -291,6 +312,8 @@ class MemoryRetriever:
             sources.setdefault(row["id"], set()).add("vector")
         for row in topic_rows:
             sources.setdefault(row["id"], set()).add("topic")
+        for row in await self._person_neighbours(entity_id, person_id, mentioned_names):
+            sources.setdefault(row["id"], set()).add("person")
 
         rows = await self.graph.execute(_EPISODES, entity_id=entity_id, ids=list(sources), since=since)
         scored = []
@@ -328,4 +351,28 @@ class MemoryRetriever:
         return RetrievalResult(
             episodes=episodes, facts=facts, candidates=scored, k_effective=k_eff,
             elapsed_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    async def _person_neighbours(
+        self, entity_id: str, person_id: str | None, mentioned_names: Sequence[str]
+    ) -> list[dict]:
+        """
+        Ids de los episodios recientes con la persona activa y con las personas nombradas (D1-58).
+
+        Un nombre mencionado cuenta si coincide, sin mayúsculas ni tildes, con
+        el de una persona que la entidad ya conoce. Las personas ausentes que
+        solo se mencionan (`hearsay`) son de Fase 2.
+        """
+        person_ids = [person_id] if person_id else []
+        wanted = {normalize_name(name) for name in mentioned_names if name}
+        if wanted:
+            people = await self.graph.execute(
+                "MATCH (p:Person {entity_id: $entity_id}) RETURN p.id AS id, p.name AS name",
+                entity_id=entity_id,
+            )
+            person_ids += [row["id"] for row in people if row["name"] and normalize_name(row["name"]) in wanted]
+        if not person_ids:
+            return []
+        return await self.graph.execute(
+            _PERSON_NEIGHBOURS, entity_id=entity_id, person_ids=person_ids, limit=PERSON_CANDIDATES
         )
