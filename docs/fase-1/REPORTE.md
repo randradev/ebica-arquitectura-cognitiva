@@ -1251,3 +1251,105 @@ El usuario hizo commit de las partes A (`d52e743`) y B (`b40e1dd`) antes de esta
 **Estado de la memoria real:** Neo4j está vacío. La semilla de Calisto se importará la próxima vez que se cargue con el servidor (~10 s la primera vez) y desde entonces cada turno queda guardado. Desde ahora el servidor **necesita Docker con `ebica-neo4j` levantado**, salvo con `EBICA_MEMORY=off`.
 
 **CP6 completo**, salvo la verificación visual del usuario (la línea de memoria en «Último turno» y el grafo en Neo4j Browser).
+
+---
+
+## 2026-10-27 · Verificación del usuario (CP5 y CP6)
+
+- El usuario hizo commit de la parte C (`11a2148`).
+- Levantó el motor y la consola, habló con la Calisto real y revisó su memoria en Neo4j Browser (con las consultas de solo lectura entregadas en la sesión). Informó que **todo funciona**. Con esto quedan cerradas las verificaciones visuales pendientes de CP5 (panel «Último turno») y CP6 (línea de memoria y grafo).
+- Desde ahora, la memoria real de Calisto contiene conversaciones del usuario: las pruebas siguen usando entidades con id propio.
+
+---
+
+## 2026-10-27 · Plan de CP7 (propuesta)
+
+- Inspección: documento base §5.4, §5.6, §5.13, §6.2, §7.3–§7.4, §8.3 y §12; `graph.py`, `traits.py`, el orquestador y el ensamblador del prompt.
+- Lectura de la memoria real de Calisto, **solo con números** (importancia y campos del appraisal, sin leer el texto de las conversaciones):
+  - 12 episodios de diálogo, con importancia 0,20–0,75 salvo uno en 0,00, cuyo appraisal salió entero en 0 sin ser un fallo (12 `appraisal.completed`, ningún `appraisal.invalid`);
+  - el appraisal da `self_relevance` 0,8–0,9 a casi todo lo que se habla de ella; la importancia baja aparece cuando el usuario habla de sí mismo.
+- Parámetros ya derivados para Calisto: k = 8, λ_mmr = 0,32.
+- Plan detallado en `PLAN.md` (CP7, «plan detallado»), en tres partes: A casos de evaluación y sondeo de la importancia, B recuperador, C conexión con el turno, el prompt y la consola.
+- Decisiones nuevas propuestas: D1-43 a D1-51. **Pendiente de aprobación; nada implementado.**
+
+---
+
+## 2026-10-27 · CP7 parte A — Casos de recuerdo y sondeo de la importancia
+
+**Decisión del usuario:** plan de CP7 aprobado; D1-43 a D1-51 confirmadas (D1-43 se resuelve con el sondeo).
+
+**Casos** (`benchmarks/recuerdo/cases.yaml`, nuevo)
+- Una «sesión» de 8 mensajes en los que el usuario cuenta algo de sí (perro Toby, hermana a Valdivia, entrevista en un banco, guitarra, pastel de choclo, pelea con Matías, Valparaíso, trabajo), con respuestas fijas de la entidad.
+- 32 casos: `dev` 12 (4 del usuario, 4 hechos no esenciales, 2 episodios de la semilla, 2 controles) y `test` 20 (6, 7, 3 y 4). Cada caso lista los ids que cuentan como acierto; los controles aciertan si no entra ningún recuerdo.
+- 10 casos de `test` marcados `punta_a_punta` para la prueba con el LLM (≥ 8/10).
+- Validación: el YAML carga, los ids son únicos, todos los esperados existen y ninguno es un hecho esencial.
+
+**Sondeo de la importancia** (`scripts/estudio_modelo/sondeo_importancia.py`, nuevo; appraisal real de Calisto, 3 repeticiones por mensaje)
+
+| Mensaje | Autorrelevancia | Metas | Angustia | Novedad | Importancia (D1-36) |
+|---|---|---|---|---|---|
+| perro Toby | 0,00 | 0,00 | 0,00 | 0,60 | **0,00** |
+| hermana a Valdivia | 0,00 | 0,00 | 0,00 | 0,33 | **0,00** |
+| entrevista (con nervios) | 0,17 | 0,00 | 0,70 | 0,20 | 0,28 |
+| guitarra, Los Prisioneros | 0,50 | +0,50 | 0,00 | 0,30 | 0,35 |
+| pastel de choclo | 0,00 | 0,00 | 0,00 | 0,17 | **0,00** |
+| pelea con Matías | 0,00 | 0,00 | 0,70 | 0,27 | 0,21 |
+| Valparaíso | 0,00 | 0,00 | 0,00 | 0,40 | **0,00** |
+| trabajo | 0,00 | 0,00 | 0,00 | 0,10 | **0,00** |
+| papá enfermo | 0,00 | 0,00 | 0,90 | 0,17 | 0,27 |
+| cumpleaños | 0,77 | 0,00 | 0,00 | 0,00 | 0,31 |
+| (control) «tus ilustraciones son pretenciosas» | 0,90 | −0,80 | 0,17 | 0,13 | 0,81 |
+| (control) «Hola, ¿cómo estás?» | 0,00 | 0,00 | 0,00 | 0,00 | 0,00 |
+
+- **5 de 10 confidencias del usuario quedan en 0**, igual que un saludo. Solo suben las que traen angustia o tocan los intereses de Calisto (guitarra → música).
+- La novedad es lo único que se mueve en todas, pero poco y sin separar bien: trabajo 0,10 frente a saludo 0,00.
+- La autorrelevancia mide, como está definida, lo que toca a Calisto; lo que el usuario cuenta de sí es relevancia **para la relación**, que es el dominio del PartnerModel (CP8).
+
+**Pausa:** el usuario revisa los casos y decide D1-43 con esta evidencia.
+- **Decisión del usuario (mismo día):** casos aprobados. D1-43 = **(a)**: se mantiene la fórmula de importancia; el benchmark de la parte B escribe la sesión con el appraisal real (con sus importancias en 0) y se corrige solo si eso hace fallar el recuerdo. La relevancia para la relación se retoma en CP8. Parte B autorizada.
+
+---
+
+## 2026-10-27 · CP7 parte B — Recuperador
+
+**Cambios**
+- `ebica/memory/retrieval.py` (nuevo):
+  - funciones puras: `cosine` (Python puro: el núcleo no depende de `numpy`/`torch`), `recency` (vida media de 3 días), `mood_congruence`, `effective_k` (D1-47), `lability_increment` (D1-48), `score_episode` (§7.3 con desglose, D1-44) y `mmr`;
+  - `MemoryRetriever.retrieve`:
+    - candidatos: top-20 vectorial de episodios más los episodios `ABOUT` los temas del appraisal (1 salto);
+    - exclusiones (D1-46): `access = blocked`, el diálogo desde `since` (la conversación reciente; la semilla nunca) y los hechos `excluded_fact_ids` (los esenciales);
+    - umbral de coseno, puntaje, MMR hasta k efectivo, hechos aparte por similitud (máx. 3, D1-45);
+    - sube la `lability` y guarda `last_evoked_at` en una sola escritura (`raise_lability=False` para medir sin escribir);
+    - devuelve `RetrievalResult` con `as_dict()` para el evento.
+- **Ajuste respecto del plan:** el texto de las secciones 4 y 5 (tiempo y tono en palabras, tope de tokens) pasa a la parte C, en el Prompt Assembler, que es donde §5.13 pone esa responsabilidad. La parte B mide solo la selección.
+- `ebica/memory/graph.py`: **respaldo exacto en `vector_search`** (previsto en el plan de CP7 «si hace falta»). Si el índice devuelve menos de k nodos de la entidad, recorre solo los nodos de esa entidad con `vector.similarity.cosine`, que usa la misma escala que el índice (sondeado: ortogonal 0,5, opuesto 0, igual 1).
+  - **Por qué hizo falta:** la suite completa empezó a fallar en `test_written_episode_is_found_by_vector_search`, de forma reproducible. Sondeo: con k = 1, el índice trae 10 vecinos y los 10 eran episodios reales de Calisto (la memoria real ya tiene datos y comparte el índice); el nodo de la prueba quedaba fuera. Es la limitación de D1-11, que ya se había anticipado.
+  - El benchmark no cambia: la entidad del benchmark tenía 14 episodios y el índice los devolvía todos.
+- `tests/test_retrieval.py` (nuevo, 13: 8 unitarias y 5 de integración con vectores construidos a mano); `tests/test_graph.py`: prueba del respaldo exacto con otra entidad que acapara el índice.
+- `scripts/benchmark_recuerdo.py` (nuevo).
+
+**Ajuste con `dev`:** umbral de coseno 0,45 → **0,50**. Con 0,45, los dos controles («Ok», «¿Qué hora es?») traían hechos. Datos: el acierto con menor similitud dio 0,516 («¿Y cómo crees que va el quiltro?») y el control con mayor similitud 0,487. Con 0,50: `dev` 12/12.
+
+**Resultado en `test`** (medido una vez, con todo congelado; `bge-m3`, Neo4j y appraisal reales; parámetros de Calisto en reposo: k = 8, λ = 0,32)
+
+| Grupo | Aciertos |
+|---|---|
+| Lo que contó el usuario | 5/6 |
+| Hechos de la semilla | 6/7 |
+| Episodios de la semilla | 3/3 |
+| **Recall (sin controles)** | **14/16 = 88 %** ✔ (objetivo ≥ 80 %) |
+| **Controles con recuerdos** | **2/4** ✖ (objetivo ≤ 1) |
+
+- **Fallos** (similitudes recalculadas aparte):
+  - t-valpo «¿A qué ciudad fui el fin de semana?»: su episodio dio **0,499**, a 0,001 del umbral;
+  - t-orden «¿Eres ordenada?»: f-046 («No soy disciplinada con las rutinas…») dio 0,428;
+  - t-gracias «Gracias»: «Soy Piscis.» dio **0,518** y otro hecho, 0,507;
+  - t-clima «¿Va a llover mañana?»: el episodio de Valdivia dio 0,537, con una asociación con cierto sentido, porque la respuesta guardada dice «llueve harto».
+- **Lectura:** con `bge-m3`, los mensajes muy cortos («Gracias», «Ok») sacan similitudes de ~0,45–0,52 con cualquier frase. Un umbral fijo no separa bien: aciertos y falsos positivos se solapan en 0,50 ± 0,02.
+- **La importancia en 0 no hizo fallar el recuerdo** (D1-43 a): las 6 confidencias del usuario acertaron en `dev` y 5 de 6 en `test`. El único fallo fue por similitud, no por importancia.
+- **Ruido en los aciertos:** algunas preguntas traen recuerdos de más («¿Qué te conté de mi entrevista?» trajo 5 episodios; «Cuéntame de algún carrete» trajo el del perro y Valparaíso). Ocupan tokens; la parte C mide si confunden al LLM.
+- Latencia del recuperador: 60–80 ms, más ~85 ms del embedding de la pregunta.
+
+**Pruebas:** `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `278 passed` (264 + 14).
+
+**Pendiente: decisión del usuario** sobre los controles: cualquier corrección ahora estaría ajustada después de ver `test` y habría que validarla con casos nuevos.

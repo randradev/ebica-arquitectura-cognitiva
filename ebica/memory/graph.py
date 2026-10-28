@@ -213,19 +213,36 @@ class GraphStore:
         Neo4j no es el coseno, sino `(1 + coseno) / 2`, en [0, 1].
         Sobremuestreo (D1-11): el índice no sabe filtrar por entidad, así que
         se le piden `k · VECTOR_OVERSAMPLING` vecinos y se descartan los de
-        otras entidades. Si otra entidad acapara a todos esos vecinos, pueden
-        volver menos de `k` resultados.
+        otras entidades. Si otra entidad acapara a todos esos vecinos y vuelven
+        menos de `k`, se repite con similitud exacta sobre los nodos de la
+        entidad (respaldo previsto en CP7, necesario desde que la memoria real
+        de Calisto comparte el índice con las entidades de prueba).
         """
         if label not in VECTOR_LABELS:
             raise ValueError(f"{label} no tiene índice vectorial")
         candidates = min(k * VECTOR_OVERSAMPLING, VECTOR_MAX_CANDIDATES)
-        return await self.execute(
+        rows = await self.execute(
             "CALL db.index.vector.queryNodes($index, $candidates, $vector) YIELD node, score "
             "WHERE node.entity_id = $entity_id "
             "RETURN node.id AS id, node.name AS name, score "
             "ORDER BY score DESC LIMIT $k",
             index=vector_index_name(label),
             candidates=candidates,
+            vector=vector,
+            entity_id=entity_id,
+            k=k,
+        )
+        if len(rows) >= k:
+            return rows
+        # Respaldo exacto: recorre solo los nodos de la entidad (usa el índice
+        # por `entity_id`). `vector.similarity.cosine` devuelve la misma escala
+        # que el índice, (1 + coseno) / 2 (sondeado en CP7).
+        return await self.execute(
+            f"MATCH (node:{label} {{entity_id: $entity_id}}) "
+            "WHERE node.embedding IS NOT NULL AND size(node.embedding) = size($vector) "
+            "WITH node, vector.similarity.cosine(node.embedding, $vector) AS score "
+            "RETURN node.id AS id, node.name AS name, score "
+            "ORDER BY score DESC LIMIT $k",
             vector=vector,
             entity_id=entity_id,
             k=k,

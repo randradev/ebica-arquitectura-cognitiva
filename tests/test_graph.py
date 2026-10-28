@@ -233,3 +233,34 @@ async def test_vector_search_returns_expected_neighbour_of_the_entity(graph):
     scores = [row["score"] for row in found]
     assert scores == sorted(scores, reverse=True)
     assert all(0.0 <= score <= 1.0 for score in scores)
+
+
+@pytest.mark.integration
+async def test_vector_search_falls_back_to_exact_when_another_entity_crowds_the_index(graph):
+    """
+    Si los vecinos del índice son todos de otra entidad, el respaldo exacto
+    igual devuelve el nodo propio (D1-11; respaldo de CP7).
+
+    La entidad `b` tiene 15 nodos idénticos a la consulta; `a`, uno solo y
+    menos parecido. Con k = 1 el índice trae 10 vecinos, todos de `b`.
+    """
+    def axis(*weights: float) -> list[float]:
+        """Vector de norma 1 con los pesos dados en los primeros ejes."""
+        values = [0.0] * DIMENSION
+        values[: len(weights)] = weights
+        norm = sum(v * v for v in values) ** 0.5
+        return [v / norm for v in values]
+
+    await graph.execute(
+        "UNWIND range(1, 15) AS i CREATE (:Episode {entity_id: $e, id: 'ep-' + toString(i), embedding: $v})",
+        e=f"{TEST_PREFIX}b", v=axis(1.0),
+    )
+    await graph.execute(
+        "CREATE (:Episode {entity_id: $e, id: 'ep-propio', embedding: $v})", e=f"{TEST_PREFIX}a", v=axis(1.0, 1.0),
+    )
+
+    found = await graph.vector_search("Episode", f"{TEST_PREFIX}a", axis(1.0), k=1)
+
+    assert [row["id"] for row in found] == ["ep-propio"]
+    # Misma escala que el índice: (1 + coseno) / 2, con coseno = 1/√2.
+    assert found[0]["score"] == pytest.approx((1 + 2 ** -0.5) / 2, abs=1e-4)

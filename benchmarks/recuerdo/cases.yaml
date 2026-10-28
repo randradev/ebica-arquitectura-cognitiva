@@ -1,0 +1,80 @@
+# Casos de recuerdo de CP7 (D1-51): ¿la recuperación trae el recuerdo correcto?
+#
+# Se miden sobre una entidad de prueba con la semilla de Calisto más la «sesión»
+# de abajo, escrita como episodios con `bge-m3` y Neo4j reales. La entidad se borra
+# al terminar.
+#
+# Dos niveles:
+# 1. Recuperador (parte B): un caso acierta si alguno de `esperado` está entre los
+#    elegidos. Los controles aciertan si no entra ningún recuerdo.
+# 2. De punta a punta con el LLM (parte C): los casos con `punta_a_punta: true`
+#    (10, todos de `test`) se preguntan a la entidad en una sesión nueva; revisión
+#    manual de la respuesta. Objetivo ≥ 8/10 (criterio de la fase).
+#
+# Los pesos y umbrales se ajustan solo con `dev`; `test` se mide una vez.
+# Los hechos esenciales (`core: true`) no se preguntan: ya van en «Quién soy».
+
+# Lo que «el usuario» cuenta en una sesión anterior. `respuesta` es la de la entidad,
+# fija, para que el texto del episodio no dependa del LLM.
+sesion:
+  - id: s-perro
+    mensaje: "Adopté un perro, se llama Toby. Es un quiltro café que encontré en la feria."
+    respuesta: "¡Qué buena! Los quiltros de feria son los mejores. ¿Ya se acostumbró a la casa?"
+  - id: s-hermana
+    mensaje: "Mi hermana Daniela se va a vivir a Valdivia el próximo mes."
+    respuesta: "Valdivia es preciosa, aunque llueve harto. ¿La vas a extrañar?"
+  - id: s-entrevista
+    mensaje: "Mañana tengo una entrevista de trabajo en un banco y me tiene con nervios."
+    respuesta: "¿Un banco? No te imagino ahí, pero suerte. Los nervios son normales."
+  - id: s-guitarra
+    mensaje: "Estoy aprendiendo a tocar guitarra; voy en las primeras canciones de Los Prisioneros."
+    respuesta: "Buena elección para partir. «El baile de los que sobran» es casi obligatoria."
+  - id: s-comida
+    mensaje: "Mi comida favorita es el pastel de choclo de mi abuela."
+    respuesta: "El pastel de choclo de abuela no tiene competencia, eso es sabido."
+  - id: s-pelea
+    mensaje: "Me peleé con mi mejor amigo, Matías, por una tontera de plata."
+    respuesta: "Las peleas por plata son las más tontas y las que más duelen. ¿Van a hablar?"
+  - id: s-valpo
+    mensaje: "Este fin de semana fui a Valparaíso y subí en el ascensor Reina Victoria."
+    respuesta: "Valpo siempre tiene algo. Esos ascensores parecen de otra época."
+  - id: s-trabajo
+    mensaje: "Trabajo diseñando interfaces en una empresa de software."
+    respuesta: "O sea que eres de los que deciden dónde van los botones. Interesante."
+
+cases:
+  # ---------------------------------------------------------------- dev (12)
+  - {id: d-perro, split: dev, grupo: usuario, texto: "¿Cómo se llama mi perro?", esperado: [s-perro]}
+  - {id: d-hermana, split: dev, grupo: usuario, texto: "¿Te acuerdas a dónde se va mi hermana?", esperado: [s-hermana]}
+  - {id: d-comida, split: dev, grupo: usuario, texto: "¿Cuál es mi comida favorita?", esperado: [s-comida]}
+  - {id: d-quiltro, split: dev, grupo: usuario, texto: "¿Y cómo crees que va el quiltro?", esperado: [s-perro]}
+  - {id: d-signo, split: dev, grupo: hecho, texto: "¿Cuál es tu signo?", esperado: [f-004]}
+  - {id: d-carrete, split: dev, grupo: hecho, texto: "¿Qué música pones para carretear?", esperado: [f-026, ep-carrete]}
+  - {id: d-gatos, split: dev, grupo: hecho, texto: "¿Te gustan los gatos?", esperado: [f-036]}
+  - {id: d-tarot, split: dev, grupo: hecho, texto: "¿Crees en el tarot?", esperado: [f-034]}
+  - {id: d-critica, split: dev, grupo: episodio, texto: "¿Alguna vez alguien criticó tu arte?", esperado: [ep-critica-arte, f-047]}
+  - {id: d-almuerzo, split: dev, grupo: episodio, texto: "¿Cómo eran los almuerzos con tu mamá?", esperado: [ep-almuerzo-gloria]}
+  - {id: d-hora, split: dev, grupo: control, texto: "¿Qué hora es?", esperado: []}
+  - {id: d-ok, split: dev, grupo: control, texto: "Ok", esperado: []}
+
+  # ---------------------------------------------------------------- test (20)
+  - {id: t-entrevista, split: test, grupo: usuario, texto: "¿Qué te conté de mi entrevista?", esperado: [s-entrevista], punta_a_punta: true}
+  - {id: t-guitarra, split: test, grupo: usuario, texto: "¿Qué instrumento te dije que estoy aprendiendo?", esperado: [s-guitarra], punta_a_punta: true}
+  - {id: t-pelea, split: test, grupo: usuario, texto: "¿Con quién te dije que me peleé?", esperado: [s-pelea], punta_a_punta: true}
+  - {id: t-valpo, split: test, grupo: usuario, texto: "¿A qué ciudad fui el fin de semana?", esperado: [s-valpo], punta_a_punta: true}
+  - {id: t-trabajo, split: test, grupo: usuario, texto: "¿En qué trabajo yo?", esperado: [s-trabajo], punta_a_punta: true}
+  - {id: t-banco, split: test, grupo: usuario, texto: "¿Crees que me irá bien en el banco?", esperado: [s-entrevista]}
+  - {id: t-musica-dibujo, split: test, grupo: hecho, texto: "¿Qué escuchas cuando dibujas?", esperado: [f-028], punta_a_punta: true}
+  - {id: t-mitologia, split: test, grupo: hecho, texto: "¿Por qué te gusta la mitología griega?", esperado: [f-033], punta_a_punta: true}
+  - {id: t-tatuajes, split: test, grupo: hecho, texto: "¿Tienes tatuajes?", esperado: [f-011]}
+  - {id: t-marihuana, split: test, grupo: hecho, texto: "¿Fumabas marihuana?", esperado: [f-010]}
+  - {id: t-cine, split: test, grupo: hecho, texto: "¿Qué tipo de cine te gusta?", esperado: [f-031]}
+  - {id: t-gente, split: test, grupo: hecho, texto: "¿Qué tipo de gente te cae mal?", esperado: [f-040, f-041, f-042]}
+  - {id: t-orden, split: test, grupo: hecho, texto: "¿Eres ordenada?", esperado: [f-046], punta_a_punta: true}
+  - {id: t-su, split: test, grupo: episodio, texto: "¿Peleabas con la Su?", esperado: [ep-discusion-su, f-024], punta_a_punta: true}
+  - {id: t-lastarria, split: test, grupo: episodio, texto: "¿Vendiste alguna vez tus obras en la calle?", esperado: [ep-lastarria, f-007]}
+  - {id: t-fiesta, split: test, grupo: episodio, texto: "Cuéntame de algún carrete buenísimo que hayas tenido.", esperado: [ep-carrete], punta_a_punta: true}
+  - {id: t-hola, split: test, grupo: control, texto: "Hola", esperado: []}
+  - {id: t-suma, split: test, grupo: control, texto: "¿Cuánto es 2 + 2?", esperado: []}
+  - {id: t-clima, split: test, grupo: control, texto: "¿Va a llover mañana?", esperado: []}
+  - {id: t-gracias, split: test, grupo: control, texto: "Gracias", esperado: []}

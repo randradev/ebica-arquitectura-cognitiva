@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP6 completo (2026-10-27)**, salvo la verificación visual del usuario; decisiones hasta D1-42. **Siguiente:** plan de CP7 (recuperación híbrida).
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7: plan aprobado (2026-10-27), D1-43 a D1-51 confirmadas; parte A en curso.**
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -510,6 +510,81 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - pytest del puntaje y de MMR, con vectores sintéticos (sin Neo4j): por ejemplo, con el ánimo negativo gana el recuerdo negativo cuando la similitud es igual, y MMR evita dos casi duplicados;
   - integración: un hecho sembrado ("la gata se llama Sorda") se recupera ante "¿cómo se llama tu gata?";
   - un dato que dio el usuario en un turno anterior se recupera en una sesión nueva.
+
+#### CP7 — plan detallado (propuesta del 2026-10-27, pendiente de aprobación)
+
+**Estado real inspeccionado (2026-10-27):**
+- `GraphStore.vector_search` (CP2) devuelve `id` y `score` = (1 + coseno)/2. No devuelve el embedding, que MMR necesita.
+- `DerivedParameters` ya tiene `k_retrieval` = 4 + round(4·O), `lambda_mmr` = 0,7 − 0,4·O y `w_commit`. Para Calisto (O 0,95): **k = 8 y λ = 0,32**, es decir, mucha diversidad.
+- La memoria real de Calisto: 63 hechos (24 esenciales, ya en «Quién soy»), 6 episodios de la semilla, 12 de diálogo y 17 temas.
+- Importancia en esos 12 episodios reales (solo números, sin leer el texto): 0,20–0,75, salvo uno en **0,00** con el appraisal entero en 0 (no fue un fallo: hubo 12 `appraisal.completed` y ningún `appraisal.invalid`). El appraisal da `self_relevance` 0,8–0,9 a casi todo lo que se habla de ella; el caso que se cae es cuando el usuario habla de sí mismo (Toby en la prueba en vivo de CP6).
+- Prueba en vivo de CP6 con `bge-m3`: la consulta «¿Cómo está tu quiltro Toby?» dio coseno 0,59 con su episodio y 0,41 con un saludo sin relación; «¿Te acuerdas del accidente?» dio 0,65 con `ep-origen` y ~0,36 con el siguiente.
+- El prompt hoy tiene «Quién soy» (~843 tokens), el estado en palabras y 6 intercambios literales. Ollama trunca en silencio por encima de 8192 tokens.
+
+Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**A · Casos de evaluación e importancia** (antes de programar la recuperación)
+- `benchmarks/recuerdo/cases.yaml`, escrito primero y revisado por el usuario:
+  - preguntas sobre hechos **no esenciales** de la semilla (los esenciales ya están en el prompt): signo, música para carretear, tatuajes, mitología, tarot, gatos…;
+  - preguntas que evocan episodios de la semilla (la crítica a su arte, la pelea con la Su, el almuerzo con Gloria, Lastarria);
+  - datos contados por el usuario en una sesión anterior: un guion de 6–8 mensajes que se escribe en una entidad de prueba («Adopté un perro, Toby», «mi hermana se llama…», «mañana tengo una entrevista»…) y preguntas posteriores;
+  - preguntas de control, sin recuerdo relevante («¿qué hora es?»), donde no debería entrar nada;
+  - separación `dev`/`test`: los pesos y umbrales se ajustan con `dev` y `test` se mide una vez.
+- Sondeo de la importancia (D1-43): el appraisal real sobre ~10 mensajes en los que el usuario cuenta algo propio, para ver qué campos se mueven (`novelty`, `self_relevance`, `mentioned_people`) antes de cambiar la fórmula.
+
+**B · Recuperación (`ebica/memory/retrieval.py`), sin tocar el turno** — *hecha (2026-10-27): recall 14/16 (88 %) ✔; controles 2/4 ✖; umbral 0,50 ajustado con `dev`; respaldo exacto en `vector_search` (ver `REPORTE.md`).*
+- Funciones puras, con pytest sin Neo4j:
+  - puntaje de §7.3 con su desglose (D1-44);
+  - congruencia con el ánimo;
+  - k según el ánimo (D1-47);
+  - MMR;
+  - aumento de la labilidad (D1-48);
+  - texto de las secciones 4 y 5, con el tiempo y el tono en palabras (D1-50).
+- `MemoryRetriever.retrieve(entity_id, query_vector, topics, affect, exclude…)`:
+  - candidatos: top-N vectorial de `Episode` y de `Fact`, más los episodios `ABOUT` los temas del appraisal (1 salto; `Person`, en CP8);
+  - exclusiones (D1-46): `Trace`, `access = blocked`, hechos `core` y los episodios que ya están en la conversación reciente;
+  - puntaje y umbral de similitud;
+  - MMR hasta k para los episodios y una cuota aparte para los hechos (D1-45);
+  - sube la `lability` de lo elegido en una sola escritura;
+  - devuelve lo elegido y los candidatos con su desglose, para el evento.
+- `vector_search` se amplía para devolver también el embedding y las propiedades que el puntaje necesita (o una consulta propia del recuperador).
+- `scripts/benchmark_recuerdo.py`: recall@k automático (¿el recuerdo esperado está entre los elegidos?) y falsos positivos en los controles, con `bge-m3` y Neo4j reales sobre una entidad de prueba que se borra al terminar.
+- **Aceptación:**
+  - pytest con vectores sintéticos: con la misma similitud, el ánimo negativo trae el recuerdo negativo; MMR descarta un casi duplicado; la alerta alta con valencia negativa reduce k; las exclusiones se respetan;
+  - integración: la entidad no ve recuerdos de otra; la labilidad sube;
+  - benchmark en `test`: recall@k ≥ 80 % y ≤ 1 control con recuerdos (umbrales a confirmar en D1-51).
+
+**C · Conexión con el turno, el prompt y la consola**
+- En `_normal_turn`, el embedding del mensaje corre **en paralelo con el appraisal** (CPU mientras la GPU evalúa) y la recuperación, después de los impulsos (§6.2, etapa 4), con el ánimo ya actualizado (D1-49). La ruta impulsiva no recupera (§5.4).
+- Prompt: secciones 4 «Lo que me viene a la mente» y 5 «Lo que sé», después de «Cómo me siento» y antes de la conversación reciente, con un tope de tokens provisional hasta CP9 (D1-50).
+- Evento `memory.retrieved` (elegidos, candidatos, desglose, k efectivo y latencia). `turn.completed` agrega `latency.retrieval_ms`.
+- Consola: bloque «Recuerdos» en «Último turno», con cada recuerdo, su puntaje y su desglose.
+- **Aceptación:**
+  - pytest con LLM y memoria simulados: la cadena de eventos, el prompt con las secciones 4–5 y un fallo de la recuperación que no rompe el turno (el turno sigue sin recuerdos);
+  - prompt medido con `usage.prompt_tokens` en el peor caso (k lleno + 6 intercambios largos) por debajo de 8192 − `max_tokens`;
+  - **prueba de recuerdo de punta a punta** con el LLM (§12, criterio de §8: ≥ 8 de 10): entidad de prueba, una sesión contando cosas, recarga y preguntas en otra sesión; revisión manual de las respuestas;
+  - primer token: la recuperación suma ≤ 150 ms (medido).
+
+**Decisiones para CP7** (2026-10-27: todas confirmadas; D1-43 se resuelve con el sondeo de la parte A)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1-43 | Importancia de lo que el usuario cuenta de sí mismo | (a) Dejar D1-36 y darle poco peso (`w_i`); (b) sumar `novelty` a la fórmula; (c) un piso para todo episodio de diálogo; (d) campo nuevo en el appraisal | **Sondear primero** (parte A) qué campos se mueven con 10 mensajes de ese tipo y elegir entre (a), (b) o (c) con evidencia. (d) obligaría a rehacer el benchmark congelado del appraisal. El dato del interlocutor como tal es del PartnerModel (CP8). |
+| D1-44 | Pesos del puntaje §7.3 y recencia | — | Iniciales, a ajustar con `dev`: similitud 0,5 (con el **coseno**, no el `score` de Neo4j), recencia 0,15 con vida media de **3 días** (`e^(−Δt·ln2/3 d)`), importancia 0,15, congruencia 0,1 (`1 − |v_recuerdo − v_ahora|/2`), compromisos 0,1 (vale 0 hasta CP10). Umbral: coseno ≥ 0,45 para entrar como candidato (en CP6, 0,59 frente a 0,41). |
+| D1-45 | Hechos frente a episodios | Una sola lista / listas separadas | **Separadas:** los episodios con el puntaje completo y MMR hasta k; los hechos (sin fecha ni afecto) solo por similitud, hasta **3**. Van a secciones distintas del prompt (4 y 5). |
+| D1-46 | Qué se excluye | — | `Trace` y `access = blocked` (§7.3); los hechos `core` (ya en «Quién soy»); los episodios de diálogo de los intercambios que ya están literales en la conversación reciente (si no, el recuerdo más parecido sería el mensaje anterior). |
+| D1-47 | k según el ánimo (§5.4) | — | `k_ef = k` por defecto; con alerta ≥ 0,6 y valencia < −0,1, `k_ef = max(2, round(k/2))`; con valencia > 0,3, `k + 1`. Calisto: 8 → 4 bajo amenaza, 9 de buen ánimo. |
+| D1-48 | Cuánto sube la labilidad | — | `lability += 0,1 + 0,2·|v_recuerdo − v_ahora|/2`, tope 1. Sin decaimiento ni reinscripción en Fase 1 (§7.4, exclusiones): solo se registra para el sueño. |
+| D1-49 | Cuándo y cómo se consulta | Antes / en paralelo con el appraisal | El embedding del mensaje en paralelo con el appraisal; la consulta después de los impulsos. Ruta impulsiva sin recuperación. Un fallo de Neo4j → `memory.retrieve_failed` y el turno sigue sin recuerdos (como D1-37). |
+| D1-50 | Cómo entran al prompt y cuánto ocupan | — | Sección 4: cada recuerdo con su tiempo en palabras («hace 2 días», «en noviembre de 2025») y su tono («me dolió», «me alegró»), según la valencia guardada; la respuesta se recorta a ~300 caracteres. Sección 5: lista de hechos. **Tope provisional de ~1.200 tokens** para las dos secciones, descartando lo de menor puntaje (CP9 lo reemplaza por la WorkingMemory). Con k = 8 y ~200 tokens por recuerdo, sin tope se pasaría de 1.600. |
+| D1-51 | Cómo se mide | — | Dos niveles: (1) recall@k automático del recuperador sobre `test`, objetivo ≥ 80 % y como máximo 1 control con recuerdos; (2) respuestas del LLM revisadas a mano, objetivo ≥ 8/10 (criterio de la fase). Umbrales fijados antes de medir. |
+
+**Riesgos:**
+- λ_mmr = 0,32 para Calisto favorece la diversidad sobre la relevancia: podría desplazar el recuerdo correcto por uno distinto → el benchmark lo mide; si pasa, se consulta antes de tocar la fórmula de §5.2.
+- Prompt más largo → más latencia y más riesgo de truncado → tope de D1-50 y medición del peor caso.
+- Con pocos episodios todo es «relevante» → umbral de similitud y controles en el benchmark.
+- Recuerdos falsos: lo recuperado es lo que Calisto contestó, incluidas sus invenciones (la empresa NeuroSync, por ejemplo), que así se refuerzan → se observa en la prueba de punta a punta; corregirlo es tarea de la reinscripción y del sueño (Fase 2).
+- Escribir en la memoria real de Calisto al probar → entidades con id propio, borradas al terminar.
 
 ### CP8 — PartnerModel y selector de interlocutor
 - `ebica/social/partner.py`:
