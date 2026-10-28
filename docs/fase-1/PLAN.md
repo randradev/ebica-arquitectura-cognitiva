@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Siguiente:** plan de CP8 (PartnerModel).
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -604,6 +604,124 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - **confusión de la fuente** (CP7 C): Calisto contó como propio el viaje a Valparaíso que le había contado el usuario. Saber de quién es cada experiencia es parte de la solución; medir antes y después con `scripts/prueba_recuerdo_vivo.py`;
   - D1-43: lo que el usuario cuenta de sí queda con importancia 0 (el appraisal mide lo que toca a la entidad); la relevancia para la relación es del PartnerModel;
   - migración: los episodios ya escritos en la memoria real de Calisto no tienen `INVOLVES`; decidir si se enlazan al `primary`.
+
+#### CP8 — plan detallado (propuesta del 2026-10-28, pendiente de aprobación)
+
+**Estado real inspeccionado (2026-10-28):**
+- Git: rama `f1-memoria-afecto`, limpia, último commit `9fb5888`, 15 commits por delante de `origin`. `ebica-neo4j` `healthy`.
+- Esquema: `Person` ya tiene su restricción `(entity_id, id)` y su índice por `entity_id` (CP2), pero **ningún código crea personas**. `PrimaryPerson` (`id`, `name`, `trust`) está en la config: Calisto tiene `ricardo` con `trust` 0,40, y el hecho esencial f-060 lo nombra.
+- **El prompt no dice con quién habla la entidad:** no existe la sección 6, y el episodio guarda «Me dijeron: «…»».
+- El appraisal ya trae lo que necesita `partner_now`: `user_emotion`, `user_intent`, `topics`, `distress` y `hostility`. **No hace falta tocar el appraisal** ni su benchmark congelado. `mentioned_people` existe, y solo 3 de las 39 huellas reales lo usan.
+- `EntityState` no tiene `active_person_id` ni `partner`, y `recent_turns` no guarda quién habló.
+- `drive_relief` alivia `social` por igual, hable quien hable.
+- Memoria real de Calisto (**solo conteos**, sin leer texto): 6 episodios de la semilla y 39 de diálogo (27–28 oct), 45 `Trace`, 63 `Fact`, 47 `Topic` y 0 `Person`; relaciones `NEXT` 44, `DERIVED_FROM` 45 y `ABOUT` 74; ningún `INVOLVES`. En Neo4j solo hay nodos de `calisto`.
+- Consola: `Chat.tsx` envía `{text}`; no hay selector de interlocutor.
+
+**Alcance de Fase 1** (§5.9, §11): un `Person` por persona, el selector (persona conocida o nueva con nombre), `partner_now` y un `partner_model` básico.
+**Fuera de CP8:**
+- modo Desconocido y `speaker_guess`; personas ausentes (`hearsay`, `MENTIONS`, `RELATED_TO`): Fase 2;
+- rasgos, preferencias y estilo estimados con el LLM (síntesis del sueño): Fase 2;
+- `partner_mismatch`: Fase 3;
+- `PROMISED`/`WAS_PROMISED`: CP10;
+- alias, dinámica de la confianza y conversaciones de varias personas a la vez.
+
+Cuatro partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**A · Línea base y casos (sin código de producción)**
+- `benchmarks/fuente/cases.yaml` (nuevo), escrito primero y revisado por el usuario:
+  - **sondeo de la fuente:** después de la sesión de 8 mensajes del benchmark de recuerdo y del relleno, unas 8 preguntas que invitan a Calisto a contar experiencias propias en los mismos dominios que contó el usuario (un viaje, una mascota, un carrete, una pelea con un amigo, aprender un instrumento, el trabajo), más unas 4 de atribución («¿Quién fue a Valparaíso, tú o yo?»). Juicio manual: ¿se apropia de lo ajeno?, ¿atribuye bien?;
+  - **prueba de cruces** (se usa en C): una segunda persona (Ana) cuenta 3 cosas propias distintas de las de Ricardo y después pregunta por lo suyo y por lo de Ricardo («¿A qué ciudad fui el fin de semana?»). No debe atribuirle a Ana lo de Ricardo.
+- **Línea base con el código actual:** `prueba_recuerdo_vivo.py` más el sondeo de la fuente, 2 repeticiones (por el ruido), en una entidad temporal con id propio. La prueba de cruces no tiene línea base, porque hoy no existen las personas.
+- **Sondeo de envejecimiento (D1-59):** `benchmark_recuerdo.py` sobre `dev` con el reloj adelantado 30 días (la recencia queda ≈ 0 para todo). Pregunta: ¿las confidencias con importancia 0 pierden frente al resto? Requiere una opción nueva en el script.
+- **Pausa:** el usuario revisa los casos y la línea base, y decide D1-59.
+
+**B · Personas y PartnerModel en la memoria (sin tocar el turno)**
+- `ebica/social/partner.py` (nuevo, §10), con funciones puras y pytest sin Neo4j:
+  - `PartnerNow` a partir del appraisal: emoción, intención, foco (temas), angustia y hostilidad;
+  - `PartnerModel` y su actualización por turno (D1-54);
+  - el id de una persona nueva a partir de su nombre (D1-52);
+  - el texto de la sección 6, sin números ni género gramatical (lo arma el Prompt Assembler en C).
+- Memoria:
+  - el `MemoryWriter` asegura el `Person` del `primary` al cargar (idempotente, como la semilla) y crea personas nuevas;
+  - `write_turn` recibe a la persona: `Episode -[INVOLVES]-> Person`, `Trace -[SPOKEN_BY]-> Person` (en Fase 1 coinciden; en Fase 2 se separan con el modo Desconocido) y la actualización del `Person`, todo en la misma transacción;
+  - el texto del episodio lleva el nombre (D1-56).
+- Recuperación: los vecinos `Person` como candidatos (D1-58).
+- **Aceptación:**
+  - pytest de las funciones puras;
+  - integración con Neo4j y una entidad temporal:
+    - cargar dos veces crea un solo `Person` del `primary`;
+    - un turno crea sus `INVOLVES` y `SPOKEN_BY` y actualiza el `Person`;
+    - **dos personas cuentan cosas distintas y el modelo de cada una contiene solo lo suyo** (§12, sin cruces);
+    - un episodio de la persona activa que queda fuera del top-20 vectorial entra como candidato;
+    - nada sale de su `entity_id`;
+  - regresión del recuerdo con el texto nuevo: `benchmark_recuerdo.py` en `dev`, y `test` medido una vez, sin ajustar (antes: 14/16 de recall, 2/4 controles).
+
+**C · Turno, prompt, API y consola**
+- Estado: `active_person_id`, `partner` (persona, `now` y resumen del modelo) y `ConversationTurn.person_id` (D1-53). Los turnos guardados sin persona se asignan al `primary` al cargar.
+- Orquestador:
+  - resuelve la persona activa al empezar el turno (§6.2, etapa 1);
+  - calcula `partner_now` con el appraisal;
+  - escala el alivio de `social` por la confianza (D1-55);
+  - recupera y escribe con la persona;
+  - emite `tom.updated` después de `memory.written`.
+- Prompt:
+  - sección 6, «Cómo veo a esta persona», después de las secciones 4–5 y antes de la conversación;
+  - la nota de la sección 4 (D1-57);
+  - el prompt impulsivo solo recibe una línea con el nombre de quien habla.
+- API (D1-52): `GET /api/people`, `POST /api/people` (crea y activa) y `POST /api/people/{id}/activate`. `/api/conversation` devuelve el hilo de la persona activa. Eventos: `tom.person_created` y `tom.partner_switched`.
+- Consola:
+  - el selector «Hablando como» (personas conocidas y «Nueva persona…»);
+  - el nombre de quien habla en el chat;
+  - un panel de Teoría de la Mente con `partner_now` y el modelo de la persona activa.
+- **Aceptación:**
+  - pytest con el LLM y la memoria simulados:
+    - la cadena `… → memory.written → tom.updated → turn.completed`;
+    - al cambiar de persona se emite `tom.partner_switched`, y el prompt de Ana no lleva los intercambios de Ricardo;
+    - la sección 6 no lleva números;
+    - el alivio de `social` se escala por la confianza;
+    - con `EBICA_MEMORY=off` el turno funciona con el `primary`;
+  - en vivo, en una entidad temporal:
+    - `prueba_recuerdo_vivo.py` sigue con ≥ 8/10;
+    - el sondeo de la fuente, 2 repeticiones, comparado con A (criterio en D1-57);
+    - la prueba de cruces con Ana, revisada a mano;
+    - prompt máximo medido con `usage.prompt_tokens`;
+  - `npx tsc -b` y `npx oxlint` sin errores; el usuario verifica la consola.
+
+**D · Migración de la memoria real de Calisto (D1-60)**
+- `scripts/migrar_personas_cp8.py`, idempotente:
+  - modo `--simular`, que solo cuenta;
+  - respaldo en JSON de los nodos de `calisto` antes de escribir.
+- **Ensayo** sobre una copia de los nodos hecha dentro de Neo4j con otro `entity_id`. No se lee el texto. La copia se borra al terminar.
+- Ejecución sobre `calisto` **solo con tu aprobación**.
+- **Aceptación:**
+  - 39 `INVOLVES` y 39 `SPOKEN_BY` hacia `ricardo`;
+  - el `Person` con `n` = 39;
+  - el texto y el embedding de los 39 episodios actualizados, y las `Trace` intactas;
+  - repetir el script no cambia nada;
+  - una consulta de prueba recupera como antes.
+
+**Decisiones para CP8** (2026-10-28: todas confirmadas; D1-59 = (a) tras el sondeo de envejecimiento; D1-60 con la confirmación del usuario de que habló siempre él)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1-52 | Cómo se elige al interlocutor | (a) Un selector en la consola, con la persona activa guardada en `state.json` (por defecto, el `primary`). (b) El `person_id` en cada mensaje del chat. | **(a)**: §5.9 carga el modelo al elegir a la persona y lo guarda al cambiar; el chat no cambia. Persona nueva: el id sale del nombre («Ana» → `ana`); un nombre repetido da 409 (en Fase 1 no hay alias). Con `EBICA_MEMORY=off` solo existe el `primary`, sin persistir. |
+| D1-53 | Conversación reciente al cambiar de persona | (a) Un hilo por persona: cada intercambio guarda su `person_id` y el prompt usa los últimos 6 de la persona activa. (b) Borrarla al cambiar. (c) Compartida, con el nombre en cada mensaje. | **(a)**: con (c), Ana «hereda» como propio lo que Ricardo dijo hace un minuto, que es un cruce directo; (b) pierde el hilo de Ricardo al volver. Lo vivido con otra persona llega por la memoria, con su nombre. La exclusión `since` de D1-46 pasa a ser por persona. |
+| D1-54 | Qué guarda el `partner_model` y cuándo | Guardar al cambiar de persona o al terminar (§5.9), o en cada turno | Contenido de Fase 1: número de conversaciones, cuándo se conocieron y la última vez; media móvil de la emoción observada (valencia y alerta, α = 0,2, calibrable); temas frecuentes (los 5 más contados); temas sensibles (los de mensajes con angustia ≥ 0,6, hasta 3); confianza. Se guarda **en cada turno**, dentro de la transacción del episodio: un corte del servidor no pierde nada y cuesta un `SET`. Las propiedades son las de §7.2 (`valence_mean`, `arousal_mean`, `n`, `trust`, `model_json`). |
+| D1-55 | Confianza y drive `social` | (a) Confianza estática; el contacto con el `primary` alivia `social` completo y con otros, × confianza (§5.9). (b) Igual para todos hasta Fase 2. | **(a)**: es una multiplicación y hace observable la diferencia entre relaciones. Confianza inicial: el `primary`, desde la config (Calisto 0,40); una persona nueva, **0,2** (calibrable). Sin dinámica en Fase 1. |
+| D1-56 | Texto del episodio con el nombre (D1-35) | — | `Ricardo me dijo: «…»` / `Le respondí: «…»`. El embedding se calcula sobre ese texto. El nombre puede subir el parecido con preguntas que lo nombran, y un poco el ruido: la regresión de B lo mide. |
+| D1-57 | Contra la confusión de la fuente | Capas: (1) D1-56; (2) la sección 6 dice con quién hablo; (3) una nota en la sección 4: «(Lo que otros me contaron les pasó a ellos, no a mí.)»; (4) separar en el prompt lo vivido (la semilla) de las conversaciones recordadas. | **(1) + (2) + (3)**, y medir. (4) solo si no basta, y te consulto antes. Se descarta poner una norma en el ideal del yo: es carácter, no una regla de memoria. **Criterio, fijado antes de medir:** en el sondeo de la fuente, como máximo 1 apropiación en total (2 repeticiones), y las atribuciones correctas no bajan respecto de A. Hay un límite honesto: en CP7 el viaje estaba también en la conversación reciente, con sus roles, y el modelo igual se lo apropió. Puede ser una limitación de `llama3.1`. |
+| D1-58 | Vecinos `Person` en la recuperación (§7.3) | (a) Solo candidatos: los últimos 20 episodios con la persona activa, más los de las personas conocidas que el mensaje nombra (`mentioned_people`, por nombre normalizado). Pasan por el mismo umbral 0,50 y el mismo puntaje. (b) Además, un bono en el puntaje para la persona activa. | **(a)**: §7.3 no tiene un término de persona, y (b) obligaría a recalibrar los pesos con `dev`. Con el nombre en el texto, recordar lo de otro no es un cruce: «Ricardo me dijo…» deja claro de quién es. (b) solo si la prueba de cruces falla. Esto reemplaza «la recuperación prioriza los episodios con la persona activa» del resumen de CP8. |
+| D1-59 (**confirmada: a**, 2026-10-28) | Importancia de lo que cuenta el usuario (D1-43) | (a) Mantenerla. (b) `max(D1-36, 0,5·novelty)` en los episodios de diálogo. (c) Un bono relacional desde el `partner_model`. | **Decidir con el sondeo de envejecimiento de A.** Hoy no falla porque la recencia compensa, pero el riesgo aparece cuando la recencia se apaga. Sin evidencia de fallo, (a). |
+| D1-60 | Episodios reales de Calisto sin `INVOLVES` | (a) Enlazar los 39 episodios de diálogo a `ricardo` (`INVOLVES` y `SPOKEN_BY`). (b) Además, reescribir su texto («Me dijeron» → «Ricardo me dijo») y recalcular el embedding; la `Trace`, de solo anexado, no se toca. (c) Además, reconstruir el modelo de Ricardo con los appraisals de las 39 huellas (números y temas; es una herramienta de desarrollo, no la entidad consultando huellas). (d) No migrar. | **(a) + (b) + (c)**, en la parte D, con simulación, respaldo y ensayo en una copia. **Necesito que confirmes que en esos 39 turnos siempre hablaste tú.** Sin (b), los recuerdos viejos conservan el formato que dio la confusión. |
+
+**Riesgos:**
+- El nombre en el texto cambia las similitudes → regresión del benchmark de recuerdo en B.
+- La confusión de la fuente puede persistir (límite de un modelo de 8B) → medición honesta antes y después; la capa (4), consultándote.
+- La migración toca la memoria real → simulación, respaldo, ensayo en una copia y tu aprobación.
+- `state.json` cambia de formato (`person_id`, persona activa) → valores por defecto al cargar y pruebas de carga del estado antiguo.
+- Género gramatical en la sección 6 («lo conozco» / «la conozco») → frases neutras («Conozco a Ricardo desde…»).
+- La sección 6 alarga el prompt en unos 60–100 tokens (estimado) → se mide; hay holgura (máximo 2.298 de 7.942).
+- La consola crece (selector y panel) → verificación visual del usuario.
 
 ### CP9 — WorkingMemory y Prompt Assembler completo
 - `ebica/workspace/working_memory.py`:

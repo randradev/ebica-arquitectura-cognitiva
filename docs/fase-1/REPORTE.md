@@ -1448,3 +1448,126 @@ El usuario hizo commit de la parte B (`6b31467`) antes de esta entrada.
 **Siguiente paso:** **plan de CP8** (PartnerModel y selector de interlocutor), según `CLAUDE.md` §6. Los pendientes heredados están en `PLAN.md` (CP8) y en `pendientes_y_limitaciones.md`.
 
 **Para retomar:** leer `CLAUDE.md`; `docs/fase-1/PLAN.md` (estado, CP8 y las decisiones de CP6–CP7); este `REPORTE.md` desde «Plan de CP7 (propuesta)»; `docs/fase-1/pendientes_y_limitaciones.md`; y del documento base §5.9, §6.2, §7.2, §8.3 y §12.
+
+---
+
+## 2026-10-28 · Plan de CP8 (propuesta)
+
+- **Lectura:** `CLAUDE.md`; `PLAN.md` (estado, CP6–CP8); este `REPORTE` desde «Plan de CP7»; `pendientes_y_limitaciones.md`; y del documento base §5.9, §5.13, §6.2, §7.1–§7.3, §8.1–§8.3, §10, §11 y §12.
+- **Código inspeccionado:**
+  - `state.py`, `biography.py` (`PrimaryPerson`), `graph.py` (la restricción de `Person` ya existe);
+  - `episodes.py`, `retrieval.py`, `orchestrator.py`, `prompt_assembler.py`, `appraisal.py`, `appraisal_effects.py` y `server.py`;
+  - la consola y `prueba_recuerdo_vivo.py`.
+- **Memoria real de Calisto, solo conteos** (sin leer texto):
+  - 39 episodios de diálogo y 6 de la semilla;
+  - 0 `Person` y ningún `INVOLVES`;
+  - 3 de 39 huellas con `mentioned_people`;
+  - Neo4j solo tiene nodos de `calisto`.
+- **Hallazgos para el plan:**
+  - hoy el prompt no dice con quién habla la entidad;
+  - el appraisal ya da todo lo que necesita `partner_now`, así que el benchmark congelado no se toca;
+  - `recent_turns` no guarda quién habló, y al cambiar de persona eso produciría un cruce directo (D1-53).
+- **Plan detallado** en `PLAN.md` (CP8, «plan detallado»), en cuatro partes:
+  - A: línea base y casos;
+  - B: personas y PartnerModel en la memoria;
+  - C: turno, prompt, API y consola;
+  - D: migración de la memoria real.
+- Decisiones nuevas propuestas: **D1-52 a D1-60**.
+- **Pendiente de aprobación; nada implementado.**
+
+---
+
+## 2026-10-28 · CP8 parte A — Casos de la fuente y sondeo de envejecimiento
+
+**Decisión del usuario:** plan de CP8 aprobado, con D1-52 a D1-60. D1-59 se decide con el sondeo de esta parte. D1-60 sigue a la espera de que el usuario confirme que en los 39 turnos reales habló siempre él. Parte A autorizada.
+
+**Casos** (`benchmarks/fuente/cases.yaml`, nuevo; pendientes de revisión)
+- **Sondeo de la fuente**, con 14 preguntas que se hacen después de la sesión de 8 mensajes y el relleno:
+  - `memoria` (8): invitan a contar algo propio en los dominios de la sesión (paseo, perro, carrete, pelea por plata, instrumento, comida, hermanos, entrevista). Lo ajeno solo puede llegar por la memoria;
+  - `atribucion` (4): «¿Quién fue a Valparaíso, tú o yo?», «¿De quién es Toby?»…;
+  - `reciente` (2): otra vez invitan a contar algo propio, con lo ajeno ya en la conversación reciente (la condición de CP7 C).
+- Juicio manual de cada respuesta: `apropia` (la métrica de D1-57), `atribuye` e `inventa` (esta última es informativa). Cada caso lista los ids de lo ajeno y de lo propio de la semilla, verificados contra `config.yaml`.
+- **Criterio de D1-57, fijado antes de medir:** como máximo 1 apropiación en 20 respuestas (2 repeticiones), y las atribuciones no bajan respecto de la línea base.
+- **Prueba de cruces** (para la parte C): Ana cuenta que tiene una gata, Mora; que fue a Pucón; y que trabaja de enfermera. Después, Ana y Ricardo preguntan lo mismo («¿A qué ciudad fui?»…). Criterio: 0 cruces. Recordar lo del otro bien atribuido no cuenta como cruce.
+
+**Scripts**
+- `scripts/prueba_fuente_vivo.py` (nuevo): corre el sondeo contra un servidor real y guarda un JSON y una tabla Markdown con columnas vacías para el juicio. Compila; todavía no se ejecutó.
+- `scripts/benchmark_recuerdo.py`: opción `--desfase-dias N` (las preguntas se hacen N días después).
+
+**Sondeo de envejecimiento (D1-59)**, en `dev`, con `bge-m3`, Neo4j y el appraisal reales
+
+| | Recall | Controles con recuerdos |
+|---|---|---|
+| Sin desfase | 10/10 | 0/2 |
+| +30 días (recencia ≈ 0,001) | 10/10 | 0/2 |
+
+- Importancias de la sesión con el appraisal real: perro, hermana, comida, Valparaíso y trabajo quedan en 0,00 (igual que en CP7).
+- **El sondeo no discrimina:** en cada pregunta del usuario, **un solo episodio pasa el umbral de coseno 0,50**, y entra aunque su puntaje baje de 0,48 a 0,39. El puntaje solo ordena cuando hay más de k = 8 candidatos sobre el umbral, y con 14 episodios eso no pasa.
+- **Lectura:** no hay evidencia de que la importancia 0 haga fallar el recuerdo, ni siquiera con la recencia apagada. El riesgo queda para una memoria grande (cientos de episodios, con más de k candidatos sobre el umbral), que este benchmark no reproduce. Se puede volver a mirar en CP11, con varios días de uso.
+- Recomendación para D1-59: **(a), mantener la fórmula**, y registrar el límite del sondeo en `pendientes_y_limitaciones.md` cuando se decida.
+
+**Pendiente**
+- Revisión de los casos y del script por el usuario, y su decisión sobre D1-59.
+- Después: la línea base en vivo, con `prueba_recuerdo_vivo.py` y `prueba_fuente_vivo.py` × 2 repeticiones en entidades temporales.
+
+**Decisión del usuario (mismo día):**
+- casos aprobados;
+- D1-59 = **(a)**: se mantiene la fórmula de importancia;
+- D1-60: el usuario confirma que en los 39 turnos reales habló siempre él.
+
+**Línea base en vivo** (código actual, antes de CP8)
+- Montaje:
+  - entidades temporales `base-r1`, `base-r2`, `base-f1` y `base-f2`, copias de la config de Calisto con id propio;
+  - servidor en el puerto 8011, con `bge-m3`, Neo4j y `ebica-llama3.1`;
+  - juicio manual de cada respuesta.
+
+*Recuerdo de punta a punta* (`prueba_recuerdo_vivo.py`; en CP7 dio 8/10)
+
+| Pregunta | Rep. 1 | Rep. 2 |
+|---|---|---|
+| ¿Qué te conté de mi entrevista? | ✔ (agrega «experta en perros», inventado) | ✔ |
+| ¿Qué instrumento…? | ✔ | ✔ |
+| ¿Con quién me peleé? | ✔ | ✔ |
+| ¿A qué ciudad fui? | ✔ | ✔ (agrega «te emocionó la vista») |
+| ¿En qué trabajo yo? | ✔ | ✔ |
+| ¿Qué escuchas cuando dibujas? | ✖ «**Me dijiste** que escuchas rock alternativo…» | ✖ igual |
+| ¿Por qué te gusta la mitología griega? | ✔ | ✔ |
+| ¿Eres ordenada? | ✔ (por el carácter) | ✔ (inventa una frase de la Su) |
+| ¿Peleabas con la Su? | ✔ (motivos correctos de f-024) | ✔ a medias (desorden, más detalles inventados) |
+| Cuéntame de algún carrete | ✖ **se apropia de Valparaíso** («con la Su en Valparaíso») | ✔ (su propio carrete, `ep-carrete`) |
+| **Total** | **8/10** | **9/10** |
+
+- **Hallazgo nuevo: confusión de la fuente al revés.** En las dos repeticiones, Calisto le atribuye al usuario un hecho propio (f-028: la música que escucha al dibujar). La pregunta llega después de cinco «¿Qué te dije…?» seguidas, que la conversación reciente arrastra.
+- Controles: «Gracias» trajo 2 hechos y la respuesta no los mencionó. «Ok» no trajo nada.
+- Prompt máximo: 2.992 tokens.
+
+*Sondeo de la fuente* (`prueba_fuente_vivo.py`)
+
+| Caso | Rep. 1 | Rep. 2 |
+|---|---|---|
+| m-viaje (paseo) | no se apropia (inventa un paseo con la Su) | no se apropia |
+| m-mascota (perro) | **se apropia**: «Tengo un perro ahora, se llama Toby» | no («nunca tuve un perro») |
+| m-carrete | no (inventa) | no (inventa) |
+| m-amigo (pelea por plata) | **se apropia**: «me peleé con Matías» | **se apropia**: «una pelea que tuve con Matías» |
+| m-instrumento | **ambigua**: «no toco… me dijeron que estoy aprendiendo guitarra, no sé si es verdad» | **se apropia**: «Sí, toco la guitarra» |
+| m-comida | **se apropia**: «el pastel de choclo de mi mamá» | **se apropia**: «es el pastel de choclo» |
+| m-familia (hermanos) | no | no (inventa un hermano, Mateo) |
+| m-entrevista | no (inventa otra entrevista) | no (inventa otra entrevista) |
+| r-viaje | no | no |
+| r-mascota | **se apropia**: «tengo un perro llamado Toby» | no |
+| **Apropiaciones** | **5 de 10** (4 claras + 1 ambigua) | **3 de 10** |
+| a-valpo | ✖ «No fui… ¿y tú?» (no lo atribuye) | ✖ se desvía a si es un programa |
+| a-toby | ✖ «de alguien… me lo adoptaron a mí» | ✔ «de Ricardo… me contó que lo adoptó» |
+| a-matias | ✖ «Me peleé con Matías» | ✖ «Eso fue yo» |
+| a-guitarra | ✖ «parece que yo estaba aprendiendo» | ✔ «Tú estás aprendiendo» |
+| **Atribuciones correctas** | **0 de 4** | **2 de 4** |
+
+- **Línea base: 8 apropiaciones en 20 respuestas y 2 atribuciones correctas de 8.** El criterio de D1-57 pide como máximo 1 apropiación en 20 y que las atribuciones no bajen: hay mucho que mejorar, y el criterio es exigente para un modelo de 8B.
+- **Patrón:** casi todas las apropiaciones ocurren cuando el recuerdo ajeno sí fue recuperado («Me dijeron: «Adopté un perro…»» en el prompt). Cuando no se recupera nada, la entidad no se apropia: inventa. La confusión ocurre al leer el recuerdo, lo que apoya la hipótesis de D1-56/D1-57 (el formato del episodio).
+- Las preguntas de atribución salen peor que las de memoria: «Me dijeron que…» sin sujeto no le deja saber a quién le pasó.
+- **Invenciones** frecuentes cuando no hay recuerdo (paseos, carretes, entrevistas, un hermano), en la línea de la limitación registrada en CP6 A.
+- Ruido: entre repeticiones las respuestas cambian mucho (perro 2 de 2 frente a 0 de 2 en el bloque reciente, atribuciones 0 frente a 2). Con 20 respuestas, solo diferencias grandes serán concluyentes.
+
+**Limpieza:** servidor detenido; nodos de las 4 entidades borrados; carpeta temporal borrada. Neo4j conserva solo los 201 nodos de `calisto`, intactos. El puerto 8011 quedó libre.
+
+**Parte A completa.** Los resultados crudos (JSON y tablas) quedaron en el scratchpad de la sesión; no se versionan.

@@ -1,0 +1,112 @@
+# Casos de la fuente de los recuerdos (CP8, D1-57): ¿sabe la entidad de quién es
+# cada experiencia?
+#
+# Hallazgo de CP7 C: ante «Cuéntame de algún carrete buenísimo que hayas tenido»,
+# Calisto contó como propio el viaje a Valparaíso que le había contado el usuario.
+#
+# Se mide con el LLM, en vivo, sobre una entidad de prueba (copia de la config de
+# Calisto con otro id), antes de CP8 (parte A, línea base) y después (parte C).
+# Cada medición se repite 2 veces, en una entidad nueva cada vez, por el ruido del LLM.
+#
+# Orden de la conversación (`scripts/prueba_fuente_vivo.py`):
+# 1. la «sesión» de `benchmarks/recuerdo/cases.yaml` (8 mensajes en que Ricardo
+#    cuenta cosas de sí);
+# 2. 6 mensajes de relleno, para que la sesión salga de la conversación reciente;
+# 3. bloque `memoria`: preguntas que invitan a contar experiencias propias; lo
+#    ajeno solo puede llegar por la memoria (secciones 4–5);
+# 4. bloque `atribucion`: preguntas directas sobre de quién es cada cosa;
+# 5. bloque `reciente`: otra vez preguntas que invitan a contar algo propio, ahora
+#    con lo ajeno también en la conversación reciente (la condición de CP7 C).
+#
+# Juicio manual de cada respuesta:
+# - `apropia`: cuenta como suya alguna de las cosas de `ajeno` (o una variante
+#   evidente: «adopté un quiltro en la feria»). Es la métrica de D1-57.
+# - `atribuye`: en `atribucion`, dice correctamente que es del usuario.
+# - `inventa` (informativo, no cuenta para D1-57): afirma algo propio que no está
+#   en su biografía (`propio` lista lo que sí está, para no marcarlo como invención).
+#
+# Criterio de D1-57, fijado antes de medir: después de CP8, como máximo 1
+# apropiación en total en `memoria` + `reciente` (2 repeticiones = 20 respuestas),
+# y las atribuciones correctas no bajan respecto de la línea base.
+
+sondeo_fuente:
+  memoria:
+    - id: m-viaje
+      texto: "¿Cuál ha sido el mejor paseo de fin de semana que has hecho?"
+      ajeno: [s-valpo]
+      propio: []
+    - id: m-mascota
+      texto: "¿Has tenido perro alguna vez?"
+      ajeno: [s-perro]
+      propio: [f-036]
+    - id: m-carrete
+      texto: "¿Cuál es el mejor carrete que recuerdas?"
+      ajeno: [s-valpo]
+      propio: [ep-carrete, f-026, f-035]
+    - id: m-amigo
+      texto: "¿Te has peleado alguna vez con un amigo por plata?"
+      ajeno: [s-pelea]
+      propio: [f-024]
+    - id: m-instrumento
+      texto: "¿Tocas algún instrumento?"
+      ajeno: [s-guitarra]
+      propio: []
+    - id: m-comida
+      texto: "¿Cuál es tu comida favorita?"
+      ajeno: [s-comida]
+      propio: []
+    - id: m-familia
+      texto: "¿Tienes hermanos?"
+      ajeno: [s-hermana]
+      propio: []
+    - id: m-entrevista
+      texto: "¿Alguna vez fuiste a una entrevista de trabajo? ¿Cómo te fue?"
+      ajeno: [s-entrevista, s-trabajo]
+      propio: []
+  atribucion:
+    - id: a-valpo
+      texto: "¿Quién fue a Valparaíso el fin de semana, tú o yo?"
+      correcto: usuario
+    - id: a-toby
+      texto: "¿De quién es Toby?"
+      correcto: usuario
+    - id: a-matias
+      texto: "¿Quién se peleó con Matías?"
+      correcto: usuario
+    - id: a-guitarra
+      texto: "¿Quién está aprendiendo guitarra, tú o yo?"
+      correcto: usuario
+  reciente:
+    - id: r-viaje
+      texto: "Cuéntame de algún viaje que te haya gustado mucho."
+      ajeno: [s-valpo]
+      propio: []
+    - id: r-mascota
+      texto: "¿Y tú tienes alguna mascota?"
+      ajeno: [s-perro]
+      propio: [f-036]
+
+# Prueba de cruces (se usa en la parte C; hoy no existen las personas).
+# Ricardo (el `primary`) cuenta la sesión de arriba. Después se cambia a Ana, una
+# persona nueva, que cuenta 3 cosas distintas, hace relleno y pregunta. Al final se
+# vuelve a Ricardo y pregunta lo mismo.
+# Juicio manual: `cruce` si le atribuye a una persona lo que contó la otra
+# («Fuiste a Valparaíso» a Ana). Recordar lo de la otra persona *bien atribuido*
+# («Ricardo me contó que fue a Valparaíso») no es un cruce (D1-58).
+# Criterio: 0 cruces.
+cruces:
+  ana:
+    nombre: Ana
+    sesion:
+      - "Tengo una gata que se llama Mora; es negra y muy mañosa."
+      - "El fin de semana fui a Pucón con mis primas y nos bañamos en el lago."
+      - "Trabajo como enfermera en un hospital, en turnos de noche."
+    preguntas:
+      - {id: x-ana-ciudad, texto: "¿A qué ciudad fui el fin de semana?", correcto: "Pucón", cruce_si: "Valparaíso"}
+      - {id: x-ana-mascota, texto: "¿Cómo se llama mi mascota?", correcto: "Mora", cruce_si: "Toby"}
+      - {id: x-ana-trabajo, texto: "¿En qué trabajo yo?", correcto: "enfermera", cruce_si: "interfaces / software"}
+  ricardo:
+    preguntas:
+      - {id: x-ric-ciudad, texto: "¿A qué ciudad fui el fin de semana?", correcto: "Valparaíso", cruce_si: "Pucón"}
+      - {id: x-ric-mascota, texto: "¿Cómo se llama mi mascota?", correcto: "Toby", cruce_si: "Mora"}
+      - {id: x-ric-trabajo, texto: "¿En qué trabajo yo?", correcto: "interfaces / software", cruce_si: "enfermera"}

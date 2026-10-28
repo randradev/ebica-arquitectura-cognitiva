@@ -9,8 +9,12 @@ temas, y el recuperador elige con los parámetros de Calisto y su ánimo en
 reposo. Un caso acierta si alguno de sus `esperado` entra (episodio o hecho);
 un control acierta si no entra nada. La entidad se borra al terminar.
 
+Con `--desfase-dias N` (CP8 A, sondeo de envejecimiento, D1-59), las preguntas
+se hacen N días después de lo normal: la recencia de la sesión se apaga y se ve
+si las confidencias con importancia 0 pierden frente al resto.
+
 Necesita Ollama, Neo4j y `bge-m3`. Uso, desde la raíz del repositorio:
-    .venv/Scripts/python.exe scripts/benchmark_recuerdo.py --split dev [--salida resultado.json]
+    .venv/Scripts/python.exe scripts/benchmark_recuerdo.py --split dev [--desfase-dias 30] [--salida resultado.json]
 """
 
 import argparse
@@ -60,6 +64,7 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--split", choices=["dev", "test"], required=True)
     parser.add_argument("--salida", type=Path)
+    parser.add_argument("--desfase-dias", type=float, default=0.0)
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     data = yaml.safe_load(CASES.read_text(encoding="utf-8"))
@@ -96,7 +101,7 @@ async def main() -> None:
                 [query] = await embedder.embed([case["texto"]], "query")
                 result = await retriever.retrieve(
                     ENTITY_ID, query, affect=REST_AFFECT, k=parameters.k_retrieval,
-                    lambda_mmr=parameters.lambda_mmr, now=now,
+                    lambda_mmr=parameters.lambda_mmr, now=now + timedelta(days=args.desfase_dias),
                     topics=normalize_topics(appraisal.topics), excluded_fact_ids=core_ids,
                     raise_lability=False,
                 )
