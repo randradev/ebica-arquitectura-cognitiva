@@ -1791,3 +1791,34 @@ El usuario hizo commit de la parte B antes de esta entrada.
 - Lo que no cumple el criterio queda como **limitación aceptada** en `pendientes_y_limitaciones.md`: apropiaciones residuales, cruces y el interlocutor en tercera persona.
 
 **CP8 parte C completa**, salvo la verificación de la consola por el usuario.
+
+---
+
+## 2026-10-28 · Verificación manual de la consola y evaluación parcial
+
+- **Sesión manual del usuario** en la entidad de prueba `prueba-cp8`: 21 turnos (Ana 11, Ricardo 10) y 3 cambios de interlocutor desde el selector. La consola funcionó: selector, persona nueva y panel de Teoría de la Mente.
+- **Evaluación parcial** a pedido del usuario: `docs/fase-1/evaluacion_parcial_cp8.md`. Métricas extraídas de los 429 eventos y de Neo4j; la Teoría de la Mente y la voz se juzgaron a mano.
+- **Resultados:**
+  - modelos de persona sin cruces;
+  - recuerdo de lo dicho por Ana, bien atribuido al hablar con Ricardo;
+  - el ánimo persiste entre personas;
+  - vía baja correcta;
+  - latencias dentro de objetivo (primer token p95 0,60 s, recuperación p95 146 ms, prompt máximo 2.425 tokens);
+  - sin fallos.
+- **Hallazgos nuevos:**
+  1. **saturación del afecto** con hostilidad sostenida (VAD clavado en −1 / 1 / 0 durante 6 de 7 turnos);
+  2. **falsos positivos del appraisal**: hostilidad ante temas hostiles o insultos a terceros, angustia ante «ADIOS!»; contaminan el afecto y el modelo de Ricardo;
+  3. un sarcasmo no detectado («eres una genio...»);
+  4. **bug** en `_singular`: «adiós» → «adio»;
+  5. una respuesta copiada de un recuerdo (repetición literal).
+- Registrados en `pendientes_y_limitaciones.md`.
+- La entidad `prueba-cp8` se borra cuando el usuario detenga su servidor (el proceso sigue escuchando en el puerto 8000).
+
+- **Análisis de la valencia** (a pedido del usuario; sección 7 de `evaluacion_parcial_cp8.md`):
+  - la dirección es coherente en ~14 de 21 turnos;
+  - las incoherencias vienen de tres causas: el appraisal sin contexto de la conversación, impulsos grandes frente al rango (D1-23 sin calibrar) y el rebote desde el tope (en −1, la empatía hacia alguien neutro suma +0,22).
+- **Decisión del usuario:** dejar las propuestas para más adelante (CP9–CP11):
+  - appraisal con el último intercambio;
+  - saturación suave de los impulsos;
+  - empatía moderada por la confianza o la historia con la persona (`partner_model`);
+  - recalibrar D1-23 con conversaciones reales.

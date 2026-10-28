@@ -14,6 +14,7 @@
 | Importancia 0 para lo que el usuario cuenta de sí | D1-43 (CP7 A) | **CP11** | 2026-10-28, D1-59 (a): se mantiene. Sondeo con +30 días: 10/10 igual, pero no discrimina (un solo episodio pasa el umbral por pregunta). El riesgo es una memoria grande con más de k candidatos; se vuelve a mirar con varios días de uso. |
 | Episodios reales de Calisto sin `INVOLVES` | CP8 | **CP8 D** | D1-60: enlazar los 39 a Ricardo, reescribir el texto y reconstruir su modelo (el usuario confirmó que habló siempre él). |
 | Política ante textos largos y resumen continuo | CP5 / D1-8 | antes de **CP9** | D1-8 (b), resumen con LLM, solo si los recuerdos no caben en el presupuesto. |
+| Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP9–CP11** | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
 | Tope de 1.200 tokens de las secciones 4–5 | D1-50 (CP7) | **CP9** | Provisional; lo reemplaza la WorkingMemory. |
 | Asteriscos y acotaciones | Fase 0, pendiente 6 | **CP9** | Medir su frecuencia; filtro solo si persisten. |
 | `Commitment` en vigilia y término de compromisos del puntaje (vale 0 hoy) | §7.1, D1-44 | **CP10** | |
@@ -41,6 +42,11 @@
 | El interlocutor en tercera persona: «Solo sé que Ricardo tiene un perro», hablando con Ricardo, aunque la sección 6 dice «Estoy hablando con Ricardo» | CP8 C | 2 de 3 en una repetición de cruces; aparece suelto en otras | ídem; la opción (a), recuerdos en segunda persona, no lo resolvió y se revirtió |
 | Rechazo de asistente no detectado: «Lo siento, pero no tengo manera de saber eso… no tengo acceso a información sobre tu vida» | CP8 C | 1 caso | ampliar los patrones de `refusal.py` si se repite |
 | La sección 6 muestra los temas normalizados, sin tildes («adopcion») | CP8 C | cosmético | si molesta, guardar un nombre para mostrar |
+| Saturación del afecto con hostilidad sostenida: VAD clavado en −1 / 1 / 0 durante 6 de 7 turnos | CP5; evaluación parcial tras CP8 | sesión manual | **antes de CP11** (afecta la medición de vidas medias) |
+| Falsos positivos del appraisal: hostilidad ante temas hostiles o insultos a terceros; angustia ante «ADIOS!» | evaluación parcial tras CP8 | 3 + 1 casos en la sesión manual | contaminan el afecto y el `partner_model`; decidir en CP9–CP11 |
+| Sarcasmo sin marcas de burla no detectado («no me digas, eres una genio...») | evaluación parcial tras CP8 | 1 caso | observar |
+| **Bug:** `_singular` convierte «adiós» en «adio» | evaluación parcial tras CP8 | reproducible | corregir (barato) |
+| Respuesta copiada de un recuerdo (turnos 6 y 14, idénticos) | evaluación parcial tras CP8 | 1 caso | `repetition_watch` (CP10) |
 
 ## 3. Datos operativos
 
