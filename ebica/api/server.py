@@ -3,6 +3,8 @@ Servidor HTTP + WebSocket del motor (documento base §8.3).
 
 - `GET/POST /api/entities`, `POST /api/entities/{id}/load`: crear, listar y cargar.
 - `POST /api/affect/impulse`: inyectar afecto a mano (herramienta de desarrollador, D1-18).
+- `GET/POST /api/people`, `POST /api/people/{id}/activate`: el selector de
+  interlocutor (CP8, D1-52): listar, crear (y activar) y elegir a quien habla.
 - `WS /ws/chat`: chat con la entidad activa; la respuesta llega en streaming.
 - `WS /ws/events?history=N`: los últimos N eventos del día de la entidad activa
   y después todos los eventos del bus en vivo, para la consola.
@@ -33,14 +35,17 @@ from pydantic import BaseModel, Field
 
 from ebica.core.events import ENTITY_ID_PATTERN, EventBus, JsonlEventLog
 from ebica.core.gpu_queue import GpuQueue
-from ebica.core.orchestrator import Orchestrator
+from ebica.core.orchestrator import Orchestrator, PeopleUnavailableError
 from ebica.core.state import EntityConfig
 from ebica.entities.manager import Entity, EntityConfigError, EntityManager
+from ebica.identity.biography import SEED_ID_PATTERN
 from ebica.llm.client import LLMClient, LLMError
 from ebica.memory.episodes import MemoryWriter
 from ebica.memory.graph import GraphStore
+from ebica.memory.people import PeopleStore
 from ebica.memory.retrieval import MemoryRetriever
 from ebica.perception.embeddings import SentenceTransformerEmbedder
+from ebica.social.partner import DuplicatePersonError
 
 # CONSTANTE: máximo de eventos de historial que se envían al conectar.
 MAX_HISTORY_EVENTS = 500
@@ -101,24 +106,28 @@ class Engine:
     async def activate(self, entity: Entity) -> None:
         """
         Deja `entity` como la activa: importa su biografía semilla a la
-        memoria, detiene el bucle rápido de la anterior (que guarda su estado)
-        y arranca el de la nueva.
+        memoria, resuelve a la persona activa (CP8), detiene el bucle rápido
+        de la anterior (que guarda su estado) y arranca el de la nueva.
 
-        La semilla se importa primero: si Neo4j falla, la excepción sube y la
-        entidad anterior sigue activa. La importación es idempotente, así que
-        cargar muchas veces solo cuesta una consulta (D1-39).
+        La semilla y la persona se resuelven primero: si Neo4j falla, la
+        excepción sube y la entidad anterior sigue activa. La importación es
+        idempotente, así que cargar muchas veces solo cuesta una consulta (D1-39).
         """
         if self.memory is not None:
             config = entity.config
             report = await self.memory.import_seed(config.id, config.name, config.seed_biography)
             self.bus.emit(config.id, "memory.seed_imported", report.as_dict())
+        graph = self.memory.graph if self.memory is not None else None
+        orchestrator = Orchestrator(
+            entity, self.bus, self.manager.save_state, llm=self.llm, gpu=self.gpu,
+            memory=self.memory,
+            retriever=MemoryRetriever(graph) if graph is not None else None,
+            people=PeopleStore(graph) if graph is not None else None,
+        )
+        await orchestrator.load_partner()
         await self.deactivate()
         self.active = entity
-        retriever = MemoryRetriever(self.memory.graph) if self.memory is not None else None
-        self.orchestrator = Orchestrator(
-            entity, self.bus, self.manager.save_state, llm=self.llm, gpu=self.gpu,
-            memory=self.memory, retriever=retriever,
-        )
+        self.orchestrator = orchestrator
         self.orchestrator.start()
 
     async def deactivate(self) -> None:
@@ -126,6 +135,12 @@ class Engine:
         if self.orchestrator is not None:
             await self.orchestrator.stop()
             self.orchestrator = None
+
+
+class NewPerson(BaseModel):
+    """Persona nueva con nombre (§5.9): la entidad la conoce desde cero."""
+
+    name: str = Field(min_length=1, max_length=80)
 
 
 class Impulse(BaseModel):
@@ -236,11 +251,58 @@ def create_app(
         """
         if engine.active is None:
             return {"entity_id": None, "turns": []}
-        turns = engine.active.state.recent_turns
+        # Solo el hilo de quien habla ahora (D1-53).
+        partner = engine.orchestrator.partner if engine.orchestrator else None
+        active = partner.id if partner else None
+        turns = [turn for turn in engine.active.state.recent_turns if turn.person_id == active]
         return {
             "entity_id": engine.active.config.id,
+            "person": {"id": partner.id, "name": partner.name} if partner else None,
             "turns": [turn.model_dump(mode="json") for turn in turns],
         }
+
+    def require_orchestrator() -> Orchestrator:
+        """El orquestador de la entidad activa; 409 si no hay ninguna cargada."""
+        if engine.orchestrator is None:
+            raise HTTPException(status_code=409, detail="No hay una entidad cargada")
+        return engine.orchestrator
+
+    @app.get("/api/people")
+    async def list_people() -> dict:
+        """
+        Las personas que conoce la entidad activa y quién habla ahora (D1-52).
+
+        `can_create` es False sin memoria: entonces solo existe el `primary`.
+        """
+        orchestrator = require_orchestrator()
+        people = await orchestrator.list_people()
+        return {
+            "active": orchestrator.partner.id if orchestrator.partner else None,
+            "can_create": orchestrator.people is not None,
+            "people": [person.summary() for person in people],
+        }
+
+    @app.post("/api/people", status_code=201)
+    async def create_person(person: NewPerson) -> dict:
+        """Crea una persona nueva y la deja activa (409 si el nombre ya existe o no hay memoria)."""
+        orchestrator = require_orchestrator()
+        try:
+            model = await orchestrator.create_partner(person.name)
+        except (DuplicatePersonError, PeopleUnavailableError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return model.summary()
+
+    @app.post("/api/people/{person_id}/activate")
+    async def activate_person(person_id: str = PathParam(pattern=SEED_ID_PATTERN)) -> dict:
+        """Elige a quien habla (selector «Hablando como»); 404 si la entidad no la conoce."""
+        orchestrator = require_orchestrator()
+        try:
+            model = await orchestrator.switch_partner(person_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=f"La entidad no conoce a '{person_id}'") from error
+        except PeopleUnavailableError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return model.summary()
 
     @app.post("/api/affect/impulse")
     async def inject_affect(impulse: Impulse) -> dict:

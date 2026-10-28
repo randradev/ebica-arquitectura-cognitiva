@@ -4,7 +4,7 @@ Esquemas de configuración y de estado de una entidad (documento base §4.2, §8
 `EntityConfig` es lo que define a la entidad y escribe el desarrollador
 (`config.yaml`). `EntityState` es lo que cambia mientras vive (`state.json`).
 La identidad (rasgos, ideal del yo, biografía semilla) se añadió en Fase 1,
-CP3; afecto, drives y memoria de trabajo llegan en los checkpoints siguientes.
+CP3; afecto y drives en CP4–CP5; la persona activa y su modelo, en CP8.
 """
 
 from datetime import datetime, timezone
@@ -17,6 +17,7 @@ from ebica.affect.vad import VAD
 from ebica.core.events import ENTITY_ID_PATTERN
 from ebica.identity.biography import PrimaryPerson, SeedBiography
 from ebica.identity.traits import Traits
+from ebica.social.partner import PartnerModel, PartnerNow
 
 # Modos de la máquina de estados (§6.7). En Fase 0 solo se usa "wake";
 # las transiciones entre modos llegan con el orquestador (Fase 1–2).
@@ -71,6 +72,24 @@ class ConversationTurn(BaseModel):
     user: str
     entity: str
     ts: datetime
+    # Quién habló (CP8, D1-53): cada persona tiene su propio hilo. None en los
+    # intercambios anteriores a CP8 (al cargar se asignan al `primary`) y en
+    # las entidades sin personas.
+    person_id: str | None = None
+
+
+class PartnerState(BaseModel):
+    """
+    La persona activa en el estado vivo (§8.1 `partner`; CP8).
+
+    `model` es una copia del `PartnerModel`: con memoria, la fuente de verdad
+    es el nodo `Person` de Neo4j y esta copia se refresca al cargar; sin
+    memoria (`EBICA_MEMORY=off`), es lo único que hay. `now` es el
+    `partner_now` del último turno. `partner_mismatch` llega en Fase 3.
+    """
+
+    model: PartnerModel
+    now: PartnerNow | None = None
 
 
 class EntityState(BaseModel):
@@ -98,3 +117,7 @@ class EntityState(BaseModel):
     # guardan para que la conversación sobreviva a un reinicio; la memoria de
     # largo plazo son los episodios de Neo4j (CP6).
     recent_turns: list[ConversationTurn] = []
+    # Quién habla ahora (§8.1, §5.9; CP8). None hasta la primera carga, que lo
+    # fija en el `primary`; lo cambia el selector de la consola (D1-52).
+    active_person_id: str | None = None
+    partner: PartnerState | None = None

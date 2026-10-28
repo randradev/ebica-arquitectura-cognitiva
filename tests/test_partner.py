@@ -361,6 +361,28 @@ async def test_episodes_with_the_active_person_join_the_candidates(graph):
 
 
 @pytest.mark.integration
+async def test_candidates_know_who_the_episode_was_with(graph):
+    """Cada candidato trae su persona (`INVOLVES`), para el evento y la consola."""
+    entity_id = f"{TEST_PREFIX}a"
+    await graph.execute("CREATE (:Person {entity_id: $e, id: 'ana', name: 'Ana'})", e=entity_id)
+    await add_episode(graph, entity_id, "ep-ana", vec(a0=1), person_id="ana")
+    await add_episode(graph, entity_id, "ep-nadie", vec(a0=1, a1=0.1))
+
+    result = None
+    for _ in range(30):
+        result = await MemoryRetriever(graph).retrieve(
+            entity_id, vec(a0=1), affect=VAD(valence=0.0, arousal=0.5, dominance=0.5), k=8,
+            lambda_mmr=0.5, now=NOW, raise_lability=False,
+        )
+        if len(result.candidates) == 2:
+            break
+        await asyncio.sleep(0.1)
+    people = {item.candidate.id: (item.candidate.person_id, item.candidate.person_name) for item in result.candidates}
+
+    assert people == {"ep-ana": ("ana", "Ana"), "ep-nadie": (None, None)}
+
+
+@pytest.mark.integration
 async def test_person_neighbours_still_need_similarity(graph):
     """Los vecinos Person pasan por el mismo umbral: un episodio sin parecido no entra."""
     entity_id = f"{TEST_PREFIX}a"

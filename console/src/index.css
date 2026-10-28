@@ -60,6 +60,8 @@ button:disabled, input:disabled { opacity: 0.5; cursor: default; }
 .warning { color: #fdd663; }
 
 .chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.partner-selector { margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+.partner-selector .row { align-items: center; }
 .lines { flex: 1; overflow-y: auto; padding: 8px; background: var(--panel); border-radius: 4px; margin-bottom: 8px; }
 .line { margin: 0 0 8px; line-height: 1.4; }
 .line.usuario strong { color: var(--accent); }

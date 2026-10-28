@@ -122,6 +122,12 @@ class EpisodeCandidate:
     embedding: list[float]
     # Por qué entró: "vector", "topic", "person" o varios.
     sources: set[str] = field(default_factory=set)
+    # Con quién fue (`INVOLVES`, CP8); None en la semilla y en los episodios
+    # anteriores a CP8. Va en `memory.retrieved`, para ver en la consola de
+    # quién es cada recuerdo. El prompt no lo usa: el texto ya dice el nombre
+    # (D1-56; mostrarlo en segunda persona se probó y se revirtió, CP8 C).
+    person_id: str | None = None
+    person_name: str | None = None
 
 
 @dataclass
@@ -141,7 +147,7 @@ class ScoredEpisode:
         c = self.candidate
         data = {} if not preview else {"preview": " ".join(c.text.split())[:PREVIEW_CHARS]}
         return data | {
-            "id": c.id, "kind": c.kind, "sources": sorted(c.sources),
+            "id": c.id, "kind": c.kind, "sources": sorted(c.sources), "person_id": c.person_id,
             "similarity": round(self.similarity, 3), "recency": round(self.recency, 3),
             "importance": round(self.importance, 3), "mood": round(self.mood, 3),
             "commitment": self.commitment, "total": round(self.total, 3),
@@ -232,8 +238,11 @@ _EPISODES = """
 MATCH (e:Episode {entity_id: $entity_id})
 WHERE e.id IN $ids AND coalesce(e.access, 'open') <> 'blocked'
   AND ($since IS NULL OR e.kind = 'seed' OR e.ts < $since)
+OPTIONAL MATCH (e)-[:INVOLVES]->(p:Person {entity_id: $entity_id})
+WITH e, head(collect(p)) AS p
 RETURN e.id AS id, e.kind AS kind, e.ts AS ts, e.text AS text, e.valence AS valence,
-       e.arousal AS arousal, coalesce(e.importance, 0.0) AS importance, e.embedding AS embedding
+       e.arousal AS arousal, coalesce(e.importance, 0.0) AS importance, e.embedding AS embedding,
+       p.id AS person_id, p.name AS person_name
 """
 
 _TOPIC_NEIGHBOURS = """
@@ -325,6 +334,7 @@ class MemoryRetriever:
                 id=row["id"], kind=row["kind"], ts=row["ts"].to_native(), text=row["text"],
                 valence=row["valence"], arousal=row["arousal"], importance=row["importance"],
                 embedding=row["embedding"], sources=sources[row["id"]],
+                person_id=row["person_id"], person_name=row["person_name"],
             )
             scored.append(score_episode(candidate, similarity, now, affect))
         scored.sort(key=lambda item: item.total, reverse=True)

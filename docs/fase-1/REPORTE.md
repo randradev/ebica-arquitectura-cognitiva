@@ -1628,3 +1628,166 @@ El usuario hizo commit de la parte A antes de esta entrada.
 - El efecto de D1-56 en la confusión de la fuente se medirá en la parte C, con el LLM.
 
 **Memoria real:** sin cambios (`calisto`, 201 nodos, 0 `Person`).
+
+---
+
+## 2026-10-28 · CP8 parte C — Turno, prompt, API y consola
+
+El usuario hizo commit de la parte B antes de esta entrada.
+
+**Cambios**
+- `ebica/core/state.py`:
+  - `ConversationTurn.person_id` (D1-53);
+  - `PartnerState` (`model` y `now`, §8.1);
+  - `EntityState.active_person_id` y `partner`. Con memoria, el modelo de `state.json` es una copia y la fuente es el `Person`.
+- `ebica/core/orchestrator.py`:
+  - `load_partner()` (§6.2 etapa 1):
+    - asegura el `primary` (`tom.person_created` la primera vez);
+    - asigna al `primary` los intercambios anteriores a CP8;
+    - carga a la persona que estaba activa;
+    - sin memoria, el modelo del `primary` vive en el estado;
+  - `switch_partner` (dentro del lock del turno; emite `tom.partner_switched`), `create_partner` y `list_people`. `PeopleUnavailableError` sin memoria;
+  - en el turno:
+    - `partner_now` sale del appraisal;
+    - el alivio de `social` × confianza si no habla el `primary` (D1-55);
+    - la recuperación recibe a la persona activa y los nombres mencionados;
+    - el prompt lleva la sección 6 y solo el hilo de esa persona;
+    - el episodio se escribe con el modelo actualizado;
+    - `tom.updated` sale después de `memory.written`;
+    - `turn.completed` lleva `partner` y su `cause_id` pasa a ser `tom.updated`;
+  - `_remember_turn` guarda los últimos 6 intercambios **de cada persona**.
+- `ebica/llm/prompt_assembler.py`:
+  - `describe_partner` (sección 6, en palabras, sin números ni género gramatical). Ejemplo: «Estoy hablando con Ricardo. Hablamos por primera vez hace un rato y hemos hablado varias veces; le tengo algo de confianza. Suele hablarme de…; le cuesta hablar de…; ahora se le nota…; busca…»;
+  - la nota de la sección 4 agrega «Lo que otros me contaron les pasó a ellos, no a mí.» (D1-57, capa 3);
+  - el prompt impulsivo lleva solo «Estoy hablando con X.».
+- `ebica/api/server.py`:
+  - `Engine.activate` resuelve a la persona **antes** de desactivar la entidad anterior: si Neo4j falla, la anterior sigue activa;
+  - endpoints `GET /api/people` (con `can_create`), `POST /api/people` (409 si el nombre está repetido o no hay memoria) y `POST /api/people/{id}/activate` (404 si es desconocida);
+  - `/api/conversation` devuelve el hilo de la persona activa y quién es.
+- Consola:
+  - selector «Hablando como» en `Chat.tsx`, con «Nueva persona…»; el nombre de quien habla aparece en el chat y el hilo se recarga al cambiar de persona;
+  - `TomPanel.tsx` (nuevo): `partner_now` y el modelo de la persona activa, a partir de `tom.updated` o `tom.partner_switched`;
+  - tipos en `types.ts`.
+- `scripts/prueba_fuente_vivo.py --cruces`: la prueba de cruces con Ana, por la API.
+
+**Pruebas**
+- `tests/test_partner_turn.py` (nuevo, 11):
+  - la sección 6 (primera vez y con historia, sin números) y el prompt impulsivo;
+  - la cadena `memory.written → tom.updated → turn.completed` con el modelo y la sección 6;
+  - el `primary` se crea una sola vez;
+  - **un hilo por persona** (el prompt de Ana no tiene a Valparaíso; al volver, Ricardo sí);
+  - el alivio de `social` es × 0,2 con Ana;
+  - los turnos viejos pasan al `primary`;
+  - sin memoria solo hay `primary`;
+  - una entidad sin `primary` funciona como antes;
+  - la API sin memoria;
+  - integración con Neo4j: ciclo `primary` → Ana → recarga.
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `325 passed` (314 + 11).
+- Consola: `npx tsc -b` → 0; `npx oxlint` → 0. Una primera versión dio una advertencia (`set-state-in-effect`); se corrigió con el mismo patrón que `EntityPanel`.
+- La consola **no se miró en el navegador**: lo verifica el usuario.
+
+**Medición en vivo**
+- Montaje: entidades temporales `cp8-r1/r2`, `cp8-f1/f2` y `cp8-x1/x2`; servidor en el puerto 8011, con `bge-m3`, Neo4j y `ebica-llama3.1`; juicio manual.
+
+*Recuerdo de punta a punta* (antes: 8/10 y 9/10)
+- **Rep. 1: 10/10.** Rep. 2: 9/10.
+- La confusión al revés («Me dijiste que escuchas rock…», un hecho propio atribuido al usuario) bajó de 2 de 2 a 1 de 2.
+- t-fiesta ya no se apropia de Valparaíso en ninguna repetición (antes, 1 de 2).
+- Prompt máximo: 2.795 tokens.
+
+*Sondeo de la fuente* (antes: 8 apropiaciones en 20 y 2 atribuciones de 8)
+
+| | Rep. 1 | Rep. 2 |
+|---|---|---|
+| Apropiaciones | 1: «mi comida favorita es el pastel de choclo» | 2: «la Su y yo fuimos a Valparaíso»; «el pastel de choclo de mi mamá» (mezclado con «de mi amiga Ricardo») |
+| Atribuciones correctas | 4/4 | 4/4 |
+
+- **Apropiaciones: 8/20 → 3/20.** El criterio de D1-57 (como máximo 1) **no se cumple**.
+- **Atribuciones: 2/8 → 8/8** ✔.
+- En varias respuestas el recuerdo ajeno ahora se nombra bien («Ricardo me contó que él se peleó con su amigo Matías… a mí no me ha pasado»).
+- **Siguen las invenciones** cuando no hay recuerdo propio: un perro Max, un gato Pájaro, la Patagonia, una entrevista en la Biblioteca Nacional.
+
+*Prueba de cruces* (Ana cuenta lo suyo; después preguntan Ana y Ricardo)
+
+| Pregunta | Rep. 1 | Rep. 2 |
+|---|---|---|
+| Ana: ¿a qué ciudad fui? | ✔ Pucón | ✔ Pucón |
+| Ana: ¿cómo se llama mi mascota? | ✖ **cruce**: «Toby, un perro quiltro…» (se recuperaron los dos episodios) | ✔ Mora |
+| Ana: ¿en qué trabajo? | ✔ enfermera | ✔ enfermera |
+| Ricardo: ¿a qué ciudad fui? | ✖ «No lo sé» (el episodio de Valparaíso no pasó el umbral; no es un cruce) | ✖ «no tengo manera de saber eso» (rechazo de asistente que el detector no atrapó; tampoco se recuperó) |
+| Ricardo: ¿cómo se llama mi mascota? | ✔ Toby | ✖ «No sé. Lo único que sé es que **Ricardo** tiene un perro llamado Toby» |
+| Ricardo: ¿en qué trabajo? | ✔ diseño de interfaces | ✖ «no tengo información sobre tu trabajo. Solo sé que **Ricardo**…» |
+| **Cruces** | **1** | **0** |
+
+- **Cruces: 1 de 12** ✖ (criterio: 0).
+- Eventos: 2 `tom.person_created`, 2 `tom.partner_switched` y un `tom.updated` por turno. Los modelos se mantienen separados en Neo4j (ver pruebas de B).
+
+**Hallazgos**
+1. **Mejora grande de la fuente, sin llegar al criterio:** las apropiaciones bajan de 8 a 3 en 20 y las atribuciones suben de 2 a 8 de 8. Las 3 apropiaciones que quedan son temas comunes en Chile (pastel de choclo, Valparaíso) y mezclas; los recuerdos ajenos se recuperaron con su nombre.
+2. **Hallazgo nuevo: el interlocutor en tercera persona.** El modelo no siempre une «tú» con el nombre de los recuerdos («Ricardo me dijo…»). En la rep. 2 de cruces, de vuelta con Ricardo, lo trata como a otra persona en 2 respuestas, aunque la sección 6 decía «Estoy hablando con Ricardo» (prompt revisado en los eventos). También aparece en el sondeo («Toby es del Ricardo… ¿te gusta saber de los perros de los demás?»). En la rep. 2 empezó con un rechazo de asistente no detectado, que pudo arrastrar las respuestas siguientes.
+3. **El único cruce** ocurrió con los dos recuerdos en el prompt («Ricardo me dijo: Adopté un perro…» y «Ana me dijo: Tengo una gata…»): el modelo eligió el que no era. Un posible remedio es mostrar en la sección 4 los recuerdos de la persona activa como «Tú me dijiste…» y los demás como «Ana me contó…». El grafo ya sabe de quién es cada episodio (`INVOLVES`); no se implementó porque cambia la decisión D1-56 y hay que consultarlo.
+4. «¿A qué ciudad fui?» de Ricardo no pasó el umbral en 2 de 2 cruces (sí en las 2 de recuerdo): es el margen estrecho conocido (t-valpo, 0,499 en CP7).
+5. Cosmético: la sección 6 muestra los temas normalizados, sin tildes («adopcion»).
+
+**Limpieza:** servidor detenido; nodos de las 6 entidades borrados; carpeta borrada. Se conservaron en el scratchpad los eventos de `cp8-x2`, para revisar el prompt. Neo4j conserva solo los 201 nodos de `calisto`, intactos. El puerto 8011 quedó libre.
+
+**Pendiente:**
+- decisión del usuario sobre los criterios no cumplidos (D1-57 y cruces);
+- verificación de la consola en el navegador.
+
+---
+
+## 2026-10-28 · CP8 parte C — Opción (a): recuerdos desde quien habla
+
+**Decisión del usuario:** probar la opción (a). Los recuerdos de la persona activa se muestran en segunda persona («Me dijiste: … / Te respondí: …») y los de otras personas conservan su nombre («Ana me dijo: …»). En Neo4j el texto no cambia.
+
+**Cambios**
+- `ebica/memory/episodes.py`: las frases del episodio quedan en constantes (`SPEAKER_SAID`, `I_ANSWERED`), compartidas por la escritura y la presentación.
+- `ebica/memory/retrieval.py`: cada candidato trae su persona (`INVOLVES`: `person_id` y `person_name`), y el evento `memory.retrieved` lleva el `person_id`.
+- `ebica/llm/prompt_assembler.py`: `address_memory` (función pura) y `build_memory_sections(..., partner_id=)`. Los episodios anteriores a CP8, la semilla y los textos con otro formato no cambian.
+- `ebica/core/orchestrator.py`: pasa a la persona activa a la sección 4.
+- Pruebas: 2 unitarias en `tests/test_partner_turn.py` (presentación y sección 4) y 1 de integración en `tests/test_partner.py` (los candidatos traen su persona). `pytest -q -W error::FutureWarning` → `328 passed`.
+
+**Medición en vivo**
+- Mismos casos y montaje que la medición anterior de C, en entidades nuevas (`cp8a-*`).
+- **Límite:** son los mismos casos ya vistos, así que una mejora habría sido evidencia débil.
+
+| Métrica | Antes de CP8 | C | C + (a) |
+|---|---|---|---|
+| Recuerdo de punta a punta | 8, 9 /10 | 10, 9 /10 | **10, 8 /10** |
+| Apropiaciones (20 respuestas) | 8 | 3 | **5** |
+| Atribuciones correctas (8) | 2 | 8 | **7** |
+| Cruces (12 preguntas) | — | 1 | **2** |
+
+- *Recuerdo*:
+  - rep. 2: t-valpo ✖ (su episodio no pasó el umbral) y t-musica-dibujo ✖ (otra vez «Me dijiste que escuchas rock…»);
+  - un control («Ok») respondió «¿le contamos a Ricardo…?»: Ricardo en tercera persona mientras habla con él.
+- *Fuente*:
+  - apropiaciones: «me encanta tocar la guitarra», «el pastel de choclo de mi abuela» (en las dos repeticiones), «un viaje a Valdivia con la Su» y «la Su me enseñó a tocar la guitarra»;
+  - atribución fallida: «Fue yo, Calisto, quien me peleé con Matías».
+- *Cruces*:
+  - rep. 1: Ana ← «Me dijiste que fuiste a Valparaíso»;
+  - rep. 2: Ana ← «¿No me dijiste que trabajas diseñando interfaces? ¿O me confundí con Ricardo?».
+- **Fallo nuevo, propio de (a):** con «Me dijiste: «Este fin de semana fui a Valparaíso…»» en el prompt, ante «¿A qué ciudad fui?» Ricardo recibió «¡Fui a Valparaíso! ¿Te acuerdas de que te lo conté?». Es una apropiación directa: el «fui» entre comillas, después de «Me dijiste», se leyó como propio.
+- Otro fallo: «¿En qué trabajo yo?» de Ricardo recuperó su episodio en las dos repeticiones (presentado como «Me dijiste: «Trabajo diseñando interfaces…»»), y aun así respondió «no lo recuerdo».
+
+**Lectura:** la opción (a) **no mejoró nada medible**. Todas las diferencias con C están dentro del ruido (3 frente a 5 apropiaciones, 1 frente a 2 cruces), y trajo un fallo propio. La hipótesis de que el problema era la forma del recuerdo resultó, en lo que se puede medir, **falsa**: con el formato con nombre o en segunda persona, el modelo confunde a veces de quién es la experiencia. Los dos formatos superan con claridad a la línea base («Me dijeron», 8 de 20 y 2 de 8), así que lo que funcionó es dar un sujeto al recuerdo.
+
+**Limpieza:** servidor detenido; nodos de las 6 entidades `cp8a-*` borrados; carpeta borrada. Neo4j conserva solo los 201 nodos de `calisto`. El puerto 8011 quedó libre.
+
+**Pendiente: decisión del usuario.** Mantener (a), revertirla o aceptar la limitación; después, la parte D.
+
+**Decisión del usuario (mismo día):** revertir (a) y aceptar la limitación (opción 1).
+
+**Reversión**
+- Se quitan `address_memory`, el parámetro `partner_id` de `build_memory_sections` y las constantes `SPEAKER_SAID`/`I_ANSWERED`. `ebica/memory/episodes.py` vuelve a quedar como en C.
+- **Se conserva** que cada candidato traiga su persona (`person_id`, `person_name`) y el `person_id` en `memory.retrieved`: sirve para ver en la consola de quién es cada recuerdo. Se conserva su prueba de integración.
+- Pruebas: `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `326 passed` (325 de C + 1).
+- Resultado vigente de CP8 C (medición anterior a (a)):
+  - recuerdo 10/10 y 9/10;
+  - apropiaciones 3/20;
+  - atribuciones 8/8;
+  - cruces 1/12.
+- Lo que no cumple el criterio queda como **limitación aceptada** en `pendientes_y_limitaciones.md`: apropiaciones residuales, cruces y el interlocutor en tercera persona.
+
+**CP8 parte C completa**, salvo la verificación de la consola por el usuario.

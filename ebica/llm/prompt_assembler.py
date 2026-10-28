@@ -7,10 +7,11 @@ Secciones de Fase 1 hasta CP5:
 4. «Lo que me viene a la mente»: los episodios recuperados, con su tiempo y su
    tono en palabras (CP7, D1-50).
 5. «Lo que sé»: los hechos recuperados (CP7, D1-45).
+6. «Cómo veo a esta persona»: el PartnerModel de quien habla, en palabras (CP8).
 8. La conversación reciente, como mensajes alternados (CP5, D1-24).
-El PartnerModel (6) y «Cómo expresarme» (7) llegan en CP8–CP9.
-La respuesta impulsiva de la vía baja (CP5 B2) usa una versión mínima: 1, 2 y
-el último intercambio.
+«Cómo expresarme» (7) llega en CP9.
+La respuesta impulsiva de la vía baja (CP5 B2) usa una versión mínima: 1, 2,
+el nombre de quien habla y el último intercambio.
 
 El orden importa: lo estable (sección 1) va primero y el estado al final del
 prompt de sistema, para que la caché de prefijo de Ollama reutilice el inicio.
@@ -26,6 +27,7 @@ from ebica.affect.drives import DRIVE_THRESHOLD
 from ebica.affect.vad import VAD
 from ebica.core.state import ConversationTurn, EntityConfig
 from ebica.memory.retrieval import RetrievalResult, ScoredEpisode
+from ebica.social.partner import PartnerModel, PartnerNow
 
 # Encabezado de la biografía esencial (hechos con `core: true`, D1-34).
 CORE_BIOGRAPHY_HEADER = "Lo esencial de mi historia:"
@@ -59,8 +61,13 @@ LOW_DOMINANCE, HIGH_DOMINANCE = 0.25, 0.7
 # Encabezados de las secciones 4 y 5 (CP7). La segunda línea de la sección 4
 # es parte de la decisión sobre los falsos positivos (CP7 B, opción a): un
 # recuerdo puede llegar sin venir al caso («Gracias» → «Soy Piscis.»).
+# La segunda frase es la capa (3) contra la confusión de la fuente (D1-57):
+# un recuerdo de lo que alguien me contó es experiencia de esa persona.
 MEMORIES_HEADER = "Lo que me viene a la mente:"
-MEMORIES_NOTE = "(Me vienen solos; si no vienen al caso, no los menciono.)"
+MEMORIES_NOTE = (
+    "(Me vienen solos; si no vienen al caso, no los menciono. "
+    "Lo que otros me contaron les pasó a ellos, no a mí.)"
+)
 FACTS_HEADER = "Lo que sé:"
 # CONSTANTE: largo máximo de un recuerdo de diálogo en el prompt (D1-50). Los
 # de la semilla van completos: están escritos a mano y son parte de su historia.
@@ -84,6 +91,30 @@ MONTHS = (
     "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
     "septiembre", "octubre", "noviembre", "diciembre",
 )
+# Encabezado de la sección 6 (CP8).
+PARTNER_HEADER = "Cómo veo a esta persona:"
+# CONSTANTES: cuánto conoce a la persona, por número de intercambios
+# (límite superior, palabras). Se cuentan turnos, no conversaciones.
+ACQUAINTANCE_WORDS = ((5, "hemos hablado poco"), (30, "hemos hablado varias veces"), (10**9, "hemos hablado mucho"))
+# CONSTANTES: confianza (D1-55) en palabras (límite superior, palabras).
+TRUST_WORDS = (
+    (0.3, "todavía no le tengo mucha confianza"),
+    (0.6, "le tengo algo de confianza"),
+    (1.01, "le tengo confianza"),
+)
+# CONSTANTE: intercambios necesarios para hablar de su ánimo habitual; con
+# menos, una media de 1–2 mensajes no dice cómo «suele» estar alguien.
+TYPICAL_MOOD_MIN_TURNS = 3
+# CONSTANTES: bandas de la valencia de la otra persona (límite superior,
+# palabras), sin género gramatical: «con el ánimo bajo», no «decaído/a».
+PARTNER_VALENCE_WORDS = (
+    (-0.3, "con el ánimo bajo"),
+    (0.3, "con un ánimo tranquilo"),
+    (1.01, "de buen ánimo"),
+)
+# CONSTANTES: desde cuándo se nombran la angustia, la hostilidad y la agitación ajenas.
+PARTNER_DISTRESS, PARTNER_HOSTILITY, PARTNER_AROUSAL = 0.6, 0.5, 0.7
+
 # Palabras para cada drive que pasa el umbral.
 DRIVE_WORDS = {
     "social": "ganas de conversar con alguien",
@@ -234,6 +265,54 @@ def build_memory_sections(retrieval: RetrievalResult | None, now: datetime) -> s
     return "\n\n".join(sections)
 
 
+def _band(value: float, bands: tuple) -> str:
+    """Las palabras de la primera banda cuyo límite superior supera `value`."""
+    return next(words for limit, words in bands if value < limit)
+
+
+def _join(items: list[str]) -> str:
+    """Une una lista como en una frase: «a», «a y b», «a, b y c»."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " y " + items[-1]
+
+
+def describe_partner(model: PartnerModel, now: PartnerNow | None, current_time: datetime) -> str:
+    """
+    Sección 6 «Cómo veo a esta persona», en palabras y sin números (CP8, §5.13).
+
+    `model` es lo que la entidad sabía de la persona *antes* de este turno;
+    `now`, cómo parece estar en este mensaje (del appraisal). Ej.: «Estoy
+    hablando con Ricardo. Hablamos por primera vez hace 3 días y hemos hablado
+    varias veces; le tengo algo de confianza. Suele hablarme de perro y
+    trabajo. Le cuesta hablar de trabajo. Ahora se le nota con el ánimo bajo y
+    con angustia; busca desahogarse.» Sin género gramatical, porque la
+    entidad no sabe el género de la persona.
+    """
+    lines = [f"Estoy hablando con {model.name}."]
+    trust = _band(model.trust, TRUST_WORDS)
+    if model.n == 0 or model.first_met is None:
+        lines.append(f"Es la primera vez que hablamos; {trust}.")
+    else:
+        when = describe_when(model.first_met, current_time)
+        lines.append(f"Hablamos por primera vez {when} y {_band(model.n, ACQUAINTANCE_WORDS)}; {trust}.")
+        if model.n >= TYPICAL_MOOD_MIN_TURNS:
+            lines.append(f"Suele hablarme {_band(model.valence_mean, PARTNER_VALENCE_WORDS)}.")
+    if model.top_topics:
+        lines.append(f"Suele hablarme de {_join(model.top_topics)}.")
+    if model.top_sensitive:
+        lines.append(f"Le cuesta hablar de {_join(model.top_sensitive)}.")
+    if now is not None:
+        signs = [_band(now.valence, PARTNER_VALENCE_WORDS)]
+        if now.distress >= PARTNER_DISTRESS:
+            signs.append("con angustia")
+        if now.hostility >= PARTNER_HOSTILITY:
+            signs.append("con hostilidad hacia mí")
+        elif now.arousal >= PARTNER_AROUSAL:
+            signs.append("con mucha energía")
+        intent = now.intent.strip()
+        lines.append(f"Ahora se le nota {_join(signs)}" + (f"; busca {intent}." if intent else "."))
+    return "\n".join(lines)
+
+
 def build_dialogue_messages(
     config: EntityConfig,
     user_text: str,
@@ -241,19 +320,23 @@ def build_dialogue_messages(
     drives: dict[str, float] | None = None,
     recent_turns: list[ConversationTurn] | tuple = (),
     memories: str = "",
+    partner: str = "",
 ) -> list[dict[str, str]]:
     """
     Arma los mensajes para el preset `dialogue`.
 
     Sistema (identidad; si hay afecto, cómo se siente; si hay recuerdos, las
-    secciones 4–5) → los intercambios recientes como pares user/assistant →
-    el mensaje actual. Sin afecto ni historial produce el prompt de Fase 0.
+    secciones 4–5; si hay persona, la sección 6) → los intercambios recientes
+    como pares user/assistant → el mensaje actual. Sin afecto ni historial
+    produce el prompt de Fase 0.
     """
     system = build_system_prompt(config)
     if affect is not None:
         system += f"\n\n{FEELINGS_HEADER}\n{describe_feelings(affect, drives or {})}"
     if memories:
         system += f"\n\n{memories}"
+    if partner:
+        system += f"\n\n{PARTNER_HEADER}\n{partner}"
     messages = [{"role": "system", "content": system}]
     for turn in recent_turns:
         messages.append({"role": "user", "content": turn.user})
@@ -268,16 +351,20 @@ def build_impulsive_messages(
     affect: VAD,
     drives: dict[str, float] | None = None,
     recent_turns: list[ConversationTurn] | tuple = (),
+    partner_name: str | None = None,
 ) -> list[dict[str, str]]:
     """
     Arma los mensajes para el preset `impulsive` (vía baja, §5.4; D1-31).
 
     Contexto mínimo: quién soy, cómo me siento (ya con la alarma aplicada),
-    la instrucción de responder en el impulso, el último intercambio y el
-    mensaje. Sin límites de contenido: el usuario revocó §13.2.
+    con quién hablo (solo el nombre, CP8), la instrucción de responder en el
+    impulso, el último intercambio y el mensaje. Sin límites de contenido:
+    el usuario revocó §13.2.
     """
     system = build_system_prompt(config)
     system += f"\n\n{FEELINGS_HEADER}\n{describe_feelings(affect, drives or {})}"
+    if partner_name:
+        system += f"\n\nEstoy hablando con {partner_name}."
     system += f"\n\n{IMPULSIVE_INSTRUCTION}"
     messages = [{"role": "system", "content": system}]
     for turn in list(recent_turns)[-IMPULSIVE_RECENT_TURNS:]:

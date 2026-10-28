@@ -15,8 +15,10 @@ La API solo transporta. Antes del appraisal corre la vía baja (CP5 B1–B2):
 si se dispara, la entidad responde en el impulso y el appraisal llega después.
 Toda llamada al LLM pasa por la cola de GPU. Antes de responder, la vía alta
 recupera recuerdos (CP7, §7.3); tras responder, el turno se escribe en la
-memoria episódica (CP6, D1-37). La máquina de modos y el reloj
-simulado llegan en Fase 2. El reloj solo es
+memoria episódica (CP6, D1-37). Desde CP8, cada turno es de una persona: el
+orquestador mantiene a la persona activa y su modelo (§5.9), y el turno lo
+percibe (`partner_now`), lo usa en el prompt (sección 6) y lo actualiza. La
+máquina de modos y el reloj simulado llegan en Fase 2. El reloj solo es
 inyectable (`now`), para probar con tiempo falso.
 """
 
@@ -41,7 +43,7 @@ from ebica.affect.low_road import evaluate as evaluate_low_road
 from ebica.affect.vad import VAD, AffectDynamics, apply_impulse, decay
 from ebica.core.events import Event, EventBus
 from ebica.core.gpu_queue import GpuPriority, GpuQueue
-from ebica.core.state import ConversationTurn, EntityState
+from ebica.core.state import ConversationTurn, EntityState, PartnerState
 from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
 from ebica.llm.client import LLMClient, LLMError, LLMResult
@@ -49,9 +51,11 @@ from ebica.llm.prompt_assembler import (
     build_dialogue_messages,
     build_impulsive_messages,
     build_memory_sections,
+    describe_partner,
 )
 from ebica.llm.refusal import BUFFER_CHARS, choose_prefix, detect_refusal, join_prefill, with_prefill
 from ebica.memory.episodes import MemoryWriter, normalize_topics
+from ebica.memory.people import PeopleStore
 from ebica.memory.retrieval import MemoryRetriever, RetrievalResult
 from ebica.perception.appraisal import (
     Appraisal,
@@ -61,6 +65,7 @@ from ebica.perception.appraisal import (
     neutral_appraisal,
     parse_appraisal,
 )
+from ebica.social.partner import PartnerModel, PartnerNow, update_partner_model
 
 # CONSTANTE: intercambios recientes que entran al prompt (D1-24).
 RECENT_TURNS = 6
@@ -85,6 +90,10 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class PeopleUnavailableError(RuntimeError):
+    """Sin memoria no hay personas persistentes: solo el `primary` (D1-52)."""
+
+
 class Orchestrator:
     """Hace vivir la dinámica de una entidad cargada: un tick por segundo."""
 
@@ -99,6 +108,7 @@ class Orchestrator:
         gpu: GpuQueue | None = None,
         memory: MemoryWriter | None = None,
         retriever: MemoryRetriever | None = None,
+        people: PeopleStore | None = None,
     ) -> None:
         """
         Prepara la dinámica con los parámetros que derivan de los rasgos.
@@ -107,8 +117,9 @@ class Orchestrator:
         necesario para los turnos; `gpu` es la cola compartida del motor (si
         falta, se crea una propia); `memory` escribe cada turno en Neo4j (CP6; sin
         ella, la entidad no guarda episodios); `retriever` recupera recuerdos
-        (CP7; usa el embedder de `memory`, así que solo funciona junto a ella); `now` y
-        `tick_seconds` se reemplazan en las pruebas.
+        (CP7; usa el embedder de `memory`, así que solo funciona junto a ella);
+        `people` lee y crea los `Person` (CP8; sin él, solo existe el `primary`,
+        en memoria); `now` y `tick_seconds` se reemplazan en las pruebas.
         """
         self.entity = entity
         self.bus = bus
@@ -118,6 +129,11 @@ class Orchestrator:
         self.gpu = gpu or GpuQueue(bus)
         self.memory = memory
         self.retriever = retriever
+        self.people = people
+        # Modelo de la persona activa (§5.9); lo fija `load_partner`. None si
+        # la entidad no tiene `primary` ni se eligió a nadie: el turno funciona
+        # igual, sin sección 6 ni nombre en los recuerdos.
+        self.partner: PartnerModel | None = None
         # Los hechos esenciales ya van en «Quién soy»: no se recuperan (D1-46).
         self.core_fact_ids = [fact.id for fact in entity.config.seed_biography.core_facts]
         self._save_state = save_state
@@ -274,6 +290,106 @@ class Orchestrator:
         self.bus.emit(self.entity_id, "drive.updated", dict(self.state.drives))
         self.bus.emit(self.entity_id, "tick", {"ticks": self._ticks})
 
+    # ------------------------------------------------------------ persona activa (CP8)
+
+    async def load_partner(self) -> None:
+        """
+        Resuelve la persona activa al cargar la entidad (§5.9, §6.2 etapa 1).
+
+        Asegura el `Person` del `primary` (emite `tom.person_created` la
+        primera vez), asigna al `primary` los intercambios guardados antes de
+        CP8 y carga el modelo de la persona que estaba activa (o del `primary`).
+        Sin memoria, el modelo del `primary` vive solo en `state.json`.
+        """
+        state = self.state
+        primary = self.entity.config.primary_person
+        if primary is not None:
+            for turn in state.recent_turns:
+                if turn.person_id is None:
+                    turn.person_id = primary.id
+        model: PartnerModel | None = None
+        if self.people is not None:
+            if primary is not None:
+                ensured = await self.people.ensure_primary(self.entity_id, primary)
+                if ensured.created:
+                    self.bus.emit(self.entity_id, "tom.person_created", {"person": ensured.model.summary()})
+            wanted = state.active_person_id or (primary.id if primary else None)
+            if wanted is not None:
+                model = await self.people.get(self.entity_id, wanted)
+            if model is None and primary is not None:
+                model = await self.people.get(self.entity_id, primary.id)
+        elif primary is not None:
+            # Sin memoria: lo aprendido sobrevive solo en el estado (D1-52).
+            saved = state.partner.model if state.partner else None
+            model = saved if saved is not None and saved.id == primary.id else PartnerModel.for_primary(primary)
+        self._set_partner(model)
+        self._save_state(state)
+
+    def _set_partner(self, model: PartnerModel | None, now: PartnerNow | None = None) -> None:
+        """Deja `model` como la persona activa, en el orquestador y en el estado."""
+        self.partner = model
+        self.state.active_person_id = model.id if model else None
+        self.state.partner = PartnerState(model=model, now=now) if model else None
+
+    async def list_people(self) -> list[PartnerModel]:
+        """Las personas que conoce la entidad; sin memoria, solo la activa."""
+        if self.people is not None:
+            return await self.people.list(self.entity_id)
+        return [self.partner] if self.partner else []
+
+    async def switch_partner(self, person_id: str) -> PartnerModel:
+        """
+        Cambia de interlocutor (selector «Hablando como», D1-52).
+
+        Espera a que termine el turno en curso. Lanza `KeyError` si la entidad
+        no conoce a esa persona. Emite `tom.partner_switched` con el modelo de
+        quien empieza a hablar.
+        """
+        async with self._turn_lock:
+            if self.people is None:
+                if self.partner is None or self.partner.id != person_id:
+                    raise PeopleUnavailableError("Sin memoria solo existe la persona principal")
+                model = self.partner
+            else:
+                model = await self.people.get(self.entity_id, person_id)
+                if model is None:
+                    raise KeyError(person_id)
+            previous = self.partner.id if self.partner else None
+            self._set_partner(model)
+            self.bus.emit(
+                self.entity_id, "tom.partner_switched",
+                {"from": previous, "to": model.id, "person": model.summary()},
+            )
+            self._save_state(self.state)
+            return model
+
+    async def create_partner(self, name: str) -> PartnerModel:
+        """
+        Crea una persona nueva con nombre y la deja activa (§5.9, D1-52).
+
+        Lanza `DuplicatePersonError` si ya hay alguien con ese nombre y
+        `PeopleUnavailableError` sin memoria. Emite `tom.person_created`.
+        """
+        if self.people is None:
+            raise PeopleUnavailableError("Sin memoria no se pueden crear personas")
+        model = await self.people.create(self.entity_id, name)
+        self.bus.emit(self.entity_id, "tom.person_created", {"person": model.summary()})
+        return await self.switch_partner(model.id)
+
+    def _partner_turns(self) -> list[ConversationTurn]:
+        """Los intercambios recientes con la persona activa (D1-53: un hilo por persona)."""
+        active = self.partner.id if self.partner else None
+        return [turn for turn in self.state.recent_turns if turn.person_id == active]
+
+    def _social_scale(self) -> float:
+        """
+        Cuánto alivia el contacto el drive `social` (§5.9, D1-55): completo con
+        el `primary` (o sin personas); con otra persona, según la confianza.
+        """
+        if self.partner is None or self.partner.primary:
+            return 1.0
+        return self.partner.trust
+
     # ------------------------------------------------------------ turno (CP5)
 
     async def user_turn(self, text: str) -> AsyncIterator[str]:
@@ -309,9 +425,24 @@ class Orchestrator:
 
             result: LLMResult = summary["result"]
             self._remember_turn(text, result.text)
+            partner_now = PartnerNow.from_appraisal(summary["appraisal"])
+            updated = (
+                update_partner_model(self.partner, partner_now, self.now()) if self.partner else None
+            )
             memory_started = time.perf_counter()
-            memory_event = await self._write_memory(text, result.text, low_road.triggered, summary)
+            memory_event = await self._write_memory(text, result.text, low_road.triggered, summary, updated)
             memory_s = time.perf_counter() - memory_started
+            completed_cause = memory_event.id if memory_event else summary["completed_cause_id"]
+            tom_event = None
+            if updated is not None:
+                # El modelo en memoria se actualiza aunque Neo4j haya fallado:
+                # el turno siguiente vuelve a guardar el `Person` completo.
+                self._set_partner(updated, partner_now)
+                tom_event = self.bus.emit(
+                    self.entity_id, "tom.updated",
+                    {"person_id": updated.id, "now": partner_now.model_dump(), "model": updated.summary()},
+                    cause_id=completed_cause,
+                )
             self.bus.emit(
                 self.entity_id, "turn.completed",
                 {
@@ -327,6 +458,8 @@ class Orchestrator:
                     "retrieval": summary.get("retrieval"),
                     # None si la memoria está desactivada; si no, lo escrito o el error.
                     "memory": memory_event.payload if memory_event else None,
+                    # Quién habló y cómo se le percibió (CP8); None sin personas.
+                    "partner": tom_event.payload if tom_event else None,
                     "latency": {
                         "low_road_ms": low_road_ms,
                         "appraisal_s": summary["appraisal_s"],
@@ -337,7 +470,7 @@ class Orchestrator:
                         "total_s": time.perf_counter() - started,
                     },
                 },
-                cause_id=memory_event.id if memory_event else summary["completed_cause_id"],
+                cause_id=tom_event.id if tom_event else completed_cause,
             )
             self._save_state(self.state)
 
@@ -357,7 +490,9 @@ class Orchestrator:
             appraisal_started = time.perf_counter()
             appraisal, corrections, appraisal_event = await self._appraise(text, perception_id)
             summary["appraisal_s"] = time.perf_counter() - appraisal_started
-            affect_event = self.apply_appraisal(appraisal, corrections, cause_id=appraisal_event.id)
+            affect_event = self.apply_appraisal(
+                appraisal, corrections, cause_id=appraisal_event.id, social_scale=self._social_scale()
+            )
             retrieval, retrieval_event = await self._retrieve(query, appraisal, cause_id=affect_event.id)
         finally:
             if query is not None and not query.done():
@@ -369,9 +504,13 @@ class Orchestrator:
 
         state = self.state
         temperature = dialogue_temperature(state.affect)
+        partner = (
+            describe_partner(self.partner, PartnerNow.from_appraisal(appraisal), self.now())
+            if self.partner else ""
+        )
         messages = build_dialogue_messages(
-            self.entity.config, text, state.affect, state.drives, state.recent_turns,
-            memories=build_memory_sections(retrieval, self.now()),
+            self.entity.config, text, state.affect, state.drives, self._partner_turns(),
+            memories=build_memory_sections(retrieval, self.now()), partner=partner,
         )
         result = LLMResult()
         refusals: list[dict] = []
@@ -401,21 +540,26 @@ class Orchestrator:
         Recupera recuerdos y hechos con el ánimo actual (§6.2, etapa 4; §7.3).
 
         Excluye los intercambios que ya están literales en la conversación
-        reciente y los hechos esenciales (D1-46). Emite `memory.retrieved`; si
+        reciente con esta persona y los hechos esenciales (D1-46). Suma los
+        episodios con la persona activa y con las personas que nombra el
+        mensaje (D1-58). Emite `memory.retrieved`; si
         Neo4j o el embedder fallan, `memory.retrieve_failed` y el turno sigue
         sin recuerdos (D1-49). Devuelve (None, None) si no hay recuperador.
         """
         if query is None:
             return None, None
         state = self.state
+        recent = self._partner_turns()
         try:
             vector, embed_ms = await query
             result = await self.retriever.retrieve(
                 self.entity_id, vector, affect=state.affect, k=self.parameters.k_retrieval,
                 lambda_mmr=self.parameters.lambda_mmr, now=self.now(),
                 topics=normalize_topics(appraisal.topics),
-                since=state.recent_turns[0].ts if state.recent_turns else None,
+                since=recent[0].ts if recent else None,
                 excluded_fact_ids=self.core_fact_ids,
+                person_id=self.partner.id if self.partner else None,
+                mentioned_names=[person.name for person in appraisal.mentioned_people if person.name],
             )
         except Exception as error:  # noqa: BLE001 — cualquier fallo de Neo4j o del embedder
             event = self.bus.emit(
@@ -452,7 +596,8 @@ class Orchestrator:
 
         state = self.state
         messages = build_impulsive_messages(
-            self.entity.config, text, state.affect, state.drives, state.recent_turns
+            self.entity.config, text, state.affect, state.drives, self._partner_turns(),
+            partner_name=self.partner.name if self.partner else None,
         )
         result = LLMResult()
         refusals: list[dict] = []
@@ -465,7 +610,8 @@ class Orchestrator:
         appraisal, corrections, appraisal_event = await self._appraise(text, perception_id)
         summary["appraisal_s"] = time.perf_counter() - appraisal_started
         affect_event = self.apply_appraisal(
-            appraisal, corrections, cause_id=appraisal_event.id, alarm_arousal=ALARM_AROUSAL
+            appraisal, corrections, cause_id=appraisal_event.id, alarm_arousal=ALARM_AROUSAL,
+            social_scale=self._social_scale(),
         )
         summary.update(
             appraisal=appraisal, corrections=corrections, affect_event=affect_event,
@@ -614,13 +760,15 @@ class Orchestrator:
         corrections: list[str] | None = None,
         cause_id: str | None = None,
         alarm_arousal: float = 0.0,
+        social_scale: float = 1.0,
     ) -> Event:
         """
         Aplica los efectos de un appraisal: impulso al VAD y alivio de drives (§6.2, etapa 3).
 
         El alivio de los drives produce placer por el acople de CP4 (−Σ w·Δe),
         que se suma al impulso. `alarm_arousal` es la alerta que ya sumó la vía
-        baja en este turno y se descuenta (D1-30). Emite `affect.updated`
+        baja en este turno y se descuenta (D1-30). `social_scale` reduce el
+        alivio de `social` cuando habla alguien que no es el `primary` (D1-55). Emite `affect.updated`
         (`source: "appraisal"`, con el desglose) y `drive.updated`, y devuelve el primero.
         """
         self.tick()
@@ -629,6 +777,7 @@ class Orchestrator:
         if alarm_arousal:
             impulse = discount_alarm(impulse, alarm_arousal)
         relief = drive_relief(appraisal)
+        relief["social"] *= social_scale
         before = state.drives
         after = {name: max(0.0, level - relief[name]) for name, level in before.items()}
         from_drives = valence_coupling(before, after)
@@ -657,7 +806,8 @@ class Orchestrator:
         return event
 
     async def _write_memory(
-        self, user_text: str, entity_text: str, impulsive: bool, summary: dict
+        self, user_text: str, entity_text: str, impulsive: bool, summary: dict,
+        person: PartnerModel | None = None,
     ) -> Event | None:
         """
         Escribe el episodio y la huella del turno (§6.2, post-turno; D1-37).
@@ -667,7 +817,8 @@ class Orchestrator:
         Emite `memory.written` o, si Neo4j o el embedder fallan,
         `memory.write_failed`: un recuerdo perdido no debe romper la
         conversación, que ya ocurrió y sigue en la conversación reciente.
-        Devuelve el evento emitido, o None si no hay memoria.
+        `person` es el modelo de quien habló, ya actualizado (CP8): se guarda
+        junto al episodio. Devuelve el evento emitido, o None si no hay memoria.
         """
         if self.memory is None:
             return None
@@ -675,6 +826,7 @@ class Orchestrator:
             written = await self.memory.write_turn(
                 self.entity_id, ts=self.now(), user_text=user_text, entity_text=entity_text,
                 affect=self.state.affect, appraisal=summary["appraisal"], impulsive=impulsive,
+                person=person,
             )
         except Exception as error:  # noqa: BLE001 — cualquier fallo de Neo4j o del embedder
             return self.bus.emit(
@@ -687,6 +839,19 @@ class Orchestrator:
         )
 
     def _remember_turn(self, user_text: str, entity_text: str) -> None:
-        """Guarda el intercambio y conserva solo los últimos `RECENT_TURNS` (D1-24)."""
-        turns = [*self.state.recent_turns, ConversationTurn(user=user_text, entity=entity_text, ts=self.now())]
-        self.state.recent_turns = turns[-RECENT_TURNS:]
+        """
+        Guarda el intercambio con quien habló y conserva los últimos
+        `RECENT_TURNS` *de cada persona* (D1-24, D1-53): al volver a hablar con
+        Ricardo después de Ana, su hilo sigue ahí.
+        """
+        turn = ConversationTurn(
+            user=user_text, entity=entity_text, ts=self.now(),
+            person_id=self.partner.id if self.partner else None,
+        )
+        kept: list[ConversationTurn] = []
+        per_person: dict[str | None, int] = {}
+        for item in reversed([*self.state.recent_turns, turn]):
+            if per_person.get(item.person_id, 0) < RECENT_TURNS:
+                kept.append(item)
+                per_person[item.person_id] = per_person.get(item.person_id, 0) + 1
+        self.state.recent_turns = list(reversed(kept))
