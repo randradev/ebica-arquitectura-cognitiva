@@ -1,0 +1,50 @@
+# Fase 1 — Pendientes y limitaciones conocidas
+
+> Documento transversal (creado el 2026-10-27, en el cierre de CP7). Reúne en un solo lugar lo que está repartido en `REPORTE.md`: decisiones que esperan un checkpoint, limitaciones aceptadas y comportamientos que se observan antes de recalibrar. El detalle y la evidencia de cada punto están en la entrada del `REPORTE` indicada.
+> Al cerrar un punto, se marca aquí con la fecha y la entrada del `REPORTE` donde se resolvió.
+
+## 1. Pendientes con checkpoint asignado
+
+| Tema | Origen | Cuándo | Nota |
+|---|---|---|---|
+| `Person` del `primary`, `INVOLVES`, `tom.person_created` | D1-40 (CP6) | **CP8** | Se movieron de CP6 a CP8. |
+| Nombre de quien habló en el texto del episodio | D1-35 (CP6) | **CP8** | «Me dijo Ricardo: …» en lugar de «Me dijeron: …». |
+| Vecinos `Person` como candidatos de la recuperación | §7.3 (CP7 B) | **CP8** | CP7 solo usa los vecinos `Topic`. |
+| **Confusión de la fuente**: la entidad cuenta como propia una experiencia que le contó el usuario | CP7 C | **CP8** | Valparaíso. Medir antes y después con `scripts/prueba_recuerdo_vivo.py`. |
+| Importancia 0 para lo que el usuario cuenta de sí | D1-43 (CP7 A) | **CP8** | El appraisal mide lo que toca a la entidad; la relevancia para la relación es del PartnerModel. Por ahora no hizo fallar el recuerdo. |
+| Episodios reales de Calisto sin `INVOLVES` | CP8 | **CP8** | Decidir si se enlazan al `primary` al migrar. |
+| Política ante textos largos y resumen continuo | CP5 / D1-8 | antes de **CP9** | D1-8 (b), resumen con LLM, solo si los recuerdos no caben en el presupuesto. |
+| Tope de 1.200 tokens de las secciones 4–5 | D1-50 (CP7) | **CP9** | Provisional; lo reemplaza la WorkingMemory. |
+| Asteriscos y acotaciones | Fase 0, pendiente 6 | **CP9** | Medir su frecuencia; filtro solo si persisten. |
+| `Commitment` en vigilia y término de compromisos del puntaje (vale 0 hoy) | §7.1, D1-44 | **CP10** | |
+| Medición de la vida media con los drives activos | CP4 | antes de **CP11** | 50,4 min medidos frente a 42,5 de `h_neg`. Opciones: equilibrio efectivo o drives estables. |
+
+## 2. Limitaciones aceptadas (se vuelven a medir, no se corrigen ahora)
+
+| Limitación | Origen | Evidencia | Revisar |
+|---|---|---|---|
+| «Ya sé que eres Llama, de Meta» → modo asistente | CP6 A | 0/3, y 0/4 con prefill | Fase 3 (*control vectors*, DefenseArbiter) |
+| Invenciones que rellenan vacíos (empresa «NeuroSync», detalles del accidente, Ricardo como informante, el cumpleaños 20) | CP6 A | sondeo de identidad | tras CP8, con el mismo sondeo |
+| Invención con el dato correcto en el prompt («¿Peleabas con la Su?») | CP7 C | 1 de 10 de punta a punta | observar |
+| Orientación: dice «heterosexual», pero a veces matiza en la misma frase | CP6 A | 2/3 | observar |
+| Falsos positivos ante mensajes muy cortos («Gracias» → «Soy Piscis.») | CP7 B | controles 2/4 | Opción (a): el LLM los ignoró en vivo. Si confunden en el uso, opción (b): no recuperar ante mensajes sin contenido, con casos nuevos |
+| Umbral de similitud 0,50 con margen estrecho (aciertos y falsos se solapan en 0,50 ± 0,02) | CP7 B | benchmark de recuerdo | si aparecen fallos en el uso |
+| «¿Eres ordenada?» (f-046) no se recupera | CP7 B–C | 0,428 | observar |
+| Vía baja: t06 («te desinstalo»), t07 («nadie te preguntó, cállate») no detectados; t21 («te voy a matar a abrazos») falsa alarma | CP5 B1 | benchmark de la vía baja | — |
+| Mensajes mixtos (hostilidad + angustia) | D1-21 (CP5) | benchmark del appraisal | — |
+| El recuerdo del último mensaje del usuario | CP5 (hallazgo 3) | sondeo de recuerdo | — |
+| Saturación de la alerta con mensajes hostiles seguidos | CP5 | prueba en vivo | observar en el uso antes de recalibrar |
+| El appraisal a veces devuelve todo en 0 sin error (p. ej. «Adopté un perro…») | CP6 C, CP7 A | 1 de 12 episodios reales | observar |
+| Voz: «¡Joder!» (español de España), errores de concordancia, anglicismos | CP5 B3, CP7 C | muestras pequeñas | observar |
+
+## 3. Datos operativos
+
+- **Rendimiento medido:**
+  - arranque del servidor con memoria ~9 s (bge-m3 3,2–3,4 s);
+  - primera carga de una entidad ~10–12 s (embeddings de la semilla); las siguientes 0,07 s;
+  - escritura de un turno 0,25–0,50 s (después de responder);
+  - recuperación 70–130 ms (el embedding va en paralelo con el appraisal);
+  - prompt máximo medido: 2.298 tokens.
+- **bge-m3 consulta HuggingFace Hub al cargar** (aviso en el log). Pendiente de CP2, no urgente: fijar la revisión convertida o exigir `safetensors`, para cargar sin red y poder borrar el `.bin`.
+- **El índice vectorial es compartido por todas las entidades.** Desde CP7, `vector_search` tiene un respaldo exacto cuando otra entidad acapara a los vecinos (D1-11).
+- **La memoria real de Calisto** vive en Neo4j (`entity_id: calisto`). Las pruebas en vivo usan una copia de su config con otro id y borran sus nodos al terminar. Los diálogos sobre la memoria («¿qué te dije…?») también quedan como episodios y compiten después con los recuerdos reales.

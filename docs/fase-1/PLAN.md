@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo (2026-10-27)**, salvo la prueba manual del usuario; decisiones hasta D1-51.
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Siguiente:** plan de CP8 (PartnerModel).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -597,6 +597,13 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
 - Prompt: sección 6 ("Cómo veo a esta persona").
 - Eventos `tom.updated`, `tom.partner_switched` y `tom.person_created`. Consola: el selector "hablando como" y un panel de Teoría de la Mente.
 - **Aceptación:** integración: dos personas cuentan cosas distintas y el modelo de cada una contiene solo lo suyo (sin cruces, §12); cambiar de persona emite `tom.partner_switched`; demostración en la consola.
+- **Pendientes heredados de CP6–CP7** (a considerar al planificar CP8; detalle en `pendientes_y_limitaciones.md`):
+  - D1-40 movió aquí el `Person` del `primary`, `INVOLVES` y `tom.person_created`;
+  - D1-35: el nombre de quien habló entra al texto del episodio («Me dijo Ricardo: …»);
+  - CP7 dejó para aquí los vecinos `Person` en los candidatos de la recuperación (§7.3);
+  - **confusión de la fuente** (CP7 C): Calisto contó como propio el viaje a Valparaíso que le había contado el usuario. Saber de quién es cada experiencia es parte de la solución; medir antes y después con `scripts/prueba_recuerdo_vivo.py`;
+  - D1-43: lo que el usuario cuenta de sí queda con importancia 0 (el appraisal mide lo que toca a la entidad); la relevancia para la relación es del PartnerModel;
+  - migración: los episodios ya escritos en la memoria real de Calisto no tienen `INVOLVES`; decidir si se enlazan al `primary`.
 
 ### CP9 — WorkingMemory y Prompt Assembler completo
 - `ebica/workspace/working_memory.py`:

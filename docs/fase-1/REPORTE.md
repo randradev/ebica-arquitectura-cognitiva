@@ -1420,3 +1420,31 @@ El usuario hizo commit de la parte B (`6b31467`) antes de esta entrada.
 - Consola: `npx tsc -b` → 0; `npx oxlint` → 0. El bloque «Recuerdos» no se miró en el navegador: lo verifica el usuario en su prueba manual.
 
 **CP7 completo**, salvo la prueba manual del usuario.
+
+---
+
+## 2026-10-27 · Verificación del usuario (CP7)
+
+- El usuario hizo la prueba manual de CP7 con la Calisto real e informó que le fue bien. Queda cerrada la verificación pendiente (bloque «Recuerdos» en la consola y recuerdo en uso real).
+
+---
+
+## 2026-10-27 · Cierre de sesión: dónde quedamos
+
+**Rama:** `f1-memoria-afecto`. Último commit: `8580bce` (CP7 C). Sin commit: solo `PLAN.md`, `REPORTE.md`, el documento nuevo `pendientes_y_limitaciones.md` y el script `scripts/prueba_recuerdo_vivo.py` (movido del scratchpad). La rama va por delante de `origin`; el push lo decide el usuario.
+
+**Completado en esta sesión**
+- **CP6 completo y verificado:**
+  - A: biografía esencial en «Quién soy» (24 hechos `core`) y una norma ante la presión; origen y relaciones 2/36 → 29/36;
+  - B: escritura de `Episode`/`Trace` y semilla idempotente;
+  - C: memoria conectada al turno y al servidor.
+- **CP7 completo y verificado:**
+  - A: casos de recuerdo y sondeo de la importancia;
+  - B: recuperador §7.3 (recall 14/16) y respaldo exacto en `vector_search`;
+  - C: recuerdos en el prompt y en la consola; punta a punta 8/10.
+- Decisiones confirmadas: **D1-1 a D1-51**.
+- La memoria real de Calisto ya contiene conversaciones del usuario (Neo4j, `entity_id: calisto`). Las pruebas usan entidades con id propio y las borran.
+
+**Siguiente paso:** **plan de CP8** (PartnerModel y selector de interlocutor), según `CLAUDE.md` §6. Los pendientes heredados están en `PLAN.md` (CP8) y en `pendientes_y_limitaciones.md`.
+
+**Para retomar:** leer `CLAUDE.md`; `docs/fase-1/PLAN.md` (estado, CP8 y las decisiones de CP6–CP7); este `REPORTE.md` desde «Plan de CP7 (propuesta)»; `docs/fase-1/pendientes_y_limitaciones.md`; y del documento base §5.9, §6.2, §7.2, §8.3 y §12.
