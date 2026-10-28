@@ -33,6 +33,9 @@ interface TurnPayload {
   refusals?: { preset: string; text: string; action: 'regenerate' | 'kept' }[]
   // null en un turno impulsivo: el preset `impulsive` usa su temperatura fija.
   temperature: number | null
+  // Recuperación (CP7): lo recordado, el error, o null (sin memoria o turno impulsivo).
+  // Ausente en los turnos anteriores a CP7.
+  retrieval?: Retrieval | { error: string } | null
   // Memoria (CP6): lo escrito, el error, o null si el servidor corre sin memoria.
   // Ausente en los turnos anteriores a CP6.
   memory?: WrittenMemory | { error: string } | null
@@ -41,9 +44,71 @@ interface TurnPayload {
     appraisal_s: number
     first_token_s: number | null
     response_s: number | null
+    retrieval_ms?: number | null
     memory_s?: number | null
     total_s: number
   }
+}
+
+interface RecalledEpisode {
+  id: string
+  kind: string
+  preview: string
+  similarity: number
+  recency: number
+  importance: number
+  mood: number
+  total: number
+}
+
+interface Retrieval {
+  episodes: RecalledEpisode[]
+  facts: { id: string; text: string; similarity: number }[]
+  candidates: unknown[]
+  k_effective: number
+  elapsed_ms: number
+  embed_ms: number
+}
+
+/**
+ * Bloque «Recuerdos» (CP7, §8.3): qué recordó la entidad antes de responder,
+ * con el puntaje y su desglose (parecido · recencia · importancia · ánimo).
+ */
+function RecallBlock({ retrieval, impulsive }: { retrieval: TurnPayload['retrieval']; impulsive: boolean }) {
+  if (retrieval === undefined) return null
+  return (
+    <div>
+      <h3>Recuerdos</h3>
+      {retrieval === null ? (
+        <p className="muted">{impulsive ? 'sin recuperación (turno impulsivo)' : 'memoria desactivada'}</p>
+      ) : 'error' in retrieval ? (
+        <p className="warning" title={retrieval.error}>
+          no se pudo recuperar
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            {retrieval.episodes.length} de {retrieval.candidates.length} candidatos · k {retrieval.k_effective} ·{' '}
+            {retrieval.facts.length} hechos · {(retrieval.embed_ms + retrieval.elapsed_ms).toFixed(0)} ms
+          </p>
+          {retrieval.episodes.map((episode) => (
+            <p
+              key={episode.id}
+              title={`parecido ${episode.similarity.toFixed(2)} · recencia ${episode.recency.toFixed(2)} · importancia ${episode.importance.toFixed(2)} · ánimo ${episode.mood.toFixed(2)}`}
+            >
+              {episode.total.toFixed(2)} · {episode.kind === 'seed' ? 'semilla' : 'vivido'} · «{episode.preview}»
+            </p>
+          ))}
+          {retrieval.facts.map((fact) => (
+            <p key={fact.id} className="muted">
+              {fact.similarity.toFixed(2)} · sé: {fact.text}
+            </p>
+          ))}
+          {retrieval.episodes.length === 0 && retrieval.facts.length === 0 && <p className="muted">nada viene a la mente</p>}
+        </>
+      )}
+    </div>
+  )
 }
 
 interface WrittenMemory {
@@ -147,6 +212,7 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
             {effect.drive_relief?.novelty.toFixed(2) ?? '—'}
           </p>
         </div>
+        <RecallBlock retrieval={turn.retrieval} impulsive={turn.impulsive} />
         <div>
           <h3>Respuesta</h3>
           <p>{turn.temperature === null ? 'preset impulsive (0.50)' : `temperatura ${turn.temperature.toFixed(2)}`}</p>

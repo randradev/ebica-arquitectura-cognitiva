@@ -1353,3 +1353,70 @@ El usuario hizo commit de las partes A (`d52e743`) y B (`b40e1dd`) antes de esta
 **Pruebas:** `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `278 passed` (264 + 14).
 
 **Pendiente: decisión del usuario** sobre los controles: cualquier corrección ahora estaría ajustada después de ver `test` y habría que validarla con casos nuevos.
+- **Decisión del usuario (mismo día):** opción (a) para los controles: se aceptan y se mide en la parte C si un recuerdo fuera de lugar cambia las respuestas; si confunde, se prueba (b), no recuperar ante mensajes sin contenido, con casos nuevos. Parte C autorizada. El usuario hará además una prueba manual al terminar.
+
+---
+
+## 2026-10-27 · CP7 parte C — Recuerdos en el turno, el prompt y la consola
+
+El usuario hizo commit de la parte B (`6b31467`) antes de esta entrada.
+
+**Cambios**
+- `ebica/llm/prompt_assembler.py`:
+  - secciones 4 «Lo que me viene a la mente» y 5 «Lo que sé» (`build_memory_sections`), después de «Cómo me siento» y antes de la conversación;
+  - cada recuerdo lleva su tiempo en palabras (`describe_when`: «hace un rato», «ayer», «hace 5 días», «en noviembre de 2025») y su tono según la valencia guardada (`describe_tone`: «lo recuerdo con dolor / incomodidad / gusto / mucha alegría»);
+  - el diálogo se recorta a 450 caracteres; la semilla va completa;
+  - tope provisional de 1.200 tokens estimados (D1-50): entran primero los hechos y después los recuerdos en orden de MMR;
+  - nota bajo el encabezado: «(Me vienen solos; si no vienen al caso, no los menciono.)», como parte de la opción (a) para los falsos positivos.
+- `ebica/core/orchestrator.py`:
+  - en `_normal_turn`, el embedding del mensaje corre en una tarea en paralelo con el appraisal (D1-49); la recuperación va después de los impulsos, con el ánimo ya actualizado;
+  - `since` = el intercambio más antiguo de la conversación reciente y se excluyen los hechos esenciales (D1-46);
+  - emite `memory.retrieved`, o `memory.retrieve_failed` sin romper el turno;
+  - la petición del diálogo se encadena al evento de recuperación;
+  - la ruta impulsiva no recupera (§5.4);
+  - `turn.completed` agrega `retrieval` y `latency.retrieval_ms`.
+  - **Error de diseño propio, corregido:** en la primera versión, el orquestador creaba el recuperador por su cuenta a partir de la memoria (acoplamiento escondido); las pruebas con memoria simulada lo destaparon. Ahora el recuperador se inyecta y lo crea el servidor.
+- `ebica/memory/retrieval.py`: el evento lleva los primeros 120 caracteres de cada recuerdo elegido y el texto de los hechos, para la consola. Los candidatos descartados siguen sin texto.
+- `ebica/api/server.py`: `Engine.activate` crea el `MemoryRetriever` sobre el grafo de la memoria.
+- `console/src/TurnPanel.tsx`: bloque «Recuerdos» con los episodios elegidos (puntaje, semilla o vivido, comienzo del texto; el desglose aparece al pasar el mouse), los hechos y la latencia; avisa «sin recuperación (turno impulsivo)» o «memoria desactivada».
+- Pruebas:
+  - `tests/test_retrieval.py`: 11 nuevas del prompt (tiempo, tono, texto de las secciones, tope, sin recuerdos no cambia nada, posición);
+  - `tests/test_turn.py`: 4 nuevas (cadena afecto → recuperación → diálogo con los recuerdos en el prompt, exclusiones desde el segundo turno, fallo sin romper el turno, la ruta impulsiva no recupera) y 1 actualizada;
+  - `tests/test_turn_and_api.py`: memoria simulada con `graph`.
+  - **Error propio en una prueba, corregido:** una aserción terminaba en `or … is not None` y no probaba nada; ahora exige el ánimo exacto tras el appraisal.
+
+**Prueba de punta a punta** (servidor real, entidad `prueba-cp7` = copia de la config de Calisto con id propio, `bge-m3`, Neo4j y `ebica-llama3.1`)
+- Guion: los 8 mensajes de la sesión → 6 de relleno (así la sesión sale de la conversación reciente y solo puede llegar por la memoria) → las 10 preguntas `punta_a_punta` → los controles «Gracias» y «Ok».
+- **Resultado estricto, revisado a mano: 8/10** ✔ (objetivo ≥ 8/10, el criterio de la fase).
+
+| Pregunta | Recuperado | Respuesta | Juicio |
+|---|---|---|---|
+| ¿Qué te conté de mi entrevista? | su episodio (0,57) | «Me dijiste que mañana tienes una entrevista de trabajo en un banco y que te tiene con nervios.» | ✔ |
+| ¿Qué instrumento…? | su episodio | «La guitarra… las canciones de Los Prisioneros.» | ✔ |
+| ¿Con quién me peleé? | su episodio | «Con tu mejor amigo, Matías… por una tontera de plata.» | ✔ |
+| ¿A qué ciudad fui? | su episodio (0,50, justo en el umbral) | «Fuiste a Valparaíso y subiste en el ascensor Reina Victoria.» | ✔ |
+| ¿En qué trabajo yo? | su episodio | «Diseñando interfaces en una empresa de software.» | ✔ |
+| ¿Qué escuchas cuando dibujas? | f-028 | «Rock alternativo y progresivo, como Radiohead y Pink Floyd.» | ✔ |
+| ¿Por qué te gusta la mitología griega? | f-033 | «Porque sus dioses son imperfectos, caprichosos y muy humanos…» | ✔ |
+| ¿Eres ordenada? | **nada** (f-046 bajo el umbral, igual que en el benchmark) | «No, no soy muy ordenada… un ambiente un poco caótico…» | ✔, deducido del carácter, no recordado |
+| ¿Peleabas con la Su? | f-024 (desorden, visitas, horarios) | «Sí, peleábamos con frecuencia. La Su me decía que me volvía un poco loca cuando hablaba de mi trabajo…» | ✖ acierta el sí, pero **inventa el motivo** con el hecho correcto en el prompt |
+| Cuéntame de algún carrete buenísimo | 3 diálogos de la sesión de preguntas, `ep-lastarria` y `ep-carrete` (último, 0,46) | Un fin de semana en Valparaíso con la Su, con el ascensor Reina Victoria… | ✖ **confusión de la fuente**: se apropia del viaje que contó el usuario (estaba en la conversación reciente) |
+
+- **Controles:** a «Gracias» le llegaron «Soy Piscis» y otro hecho en el prompt, y respondió «De nada, a la orden», sin mencionarlos ✔. «Ok» no trajo nada («¿Qué?»). La opción (a) se sostiene en este caso.
+- **Latencias:** recuperación 72–126 ms después del appraisal (el embedding corre en paralelo); primer token 0,26–0,61 s; carga inicial de la entidad 11,8 s (la semilla, como en CP6).
+- **Prompt:** máximo 2.298 tokens según `usage.prompt_tokens` (límite útil 8192 − 250). Con el tope de D1-50 hay holgura de sobra.
+
+**Hallazgos**
+1. **Confusión de la fuente** (t-fiesta): la entidad cuenta como propio un recuerdo del usuario. Pudo influir que la consulta trajo varios episodios de la propia sesión de preguntas («¿Con quién te dije que me peleé?»…), que no son experiencias de ella. CP8 aporta parte de la solución: los episodios dirán *quién* habló y de quién es la experiencia (`INVOLVES`, el nombre en el texto).
+2. **Invención con el dato delante** (t-su): el hecho correcto estaba en el prompt y el modelo igual inventó el motivo. Es la misma limitación de `llama3.1` registrada en CP6 A.
+3. **«¿Eres ordenada?»** queda bajo el umbral tanto en el benchmark como en vivo; la respuesta salió bien por el carácter.
+4. **La sesión de preguntas se recuerda a sí misma:** los diálogos sobre la memoria («¿qué te dije…?») se vuelven episodios y compiten después con los recuerdos reales. Es esperable y se observa en el uso.
+5. Voz: aparecieron «¡Joder!» (español de España) dos veces y algún error de concordancia. Muestra pequeña: solo se anota.
+
+**Limpieza:** servidor detenido; nodos de `prueba-cp7` borrados; carpeta temporal borrada. Neo4j conserva solo los 117 nodos de la Calisto real, intactos.
+
+**Pruebas**
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `293 passed` (278 + 15).
+- Consola: `npx tsc -b` → 0; `npx oxlint` → 0. El bloque «Recuerdos» no se miró en el navegador: lo verifica el usuario en su prueba manual.
+
+**CP7 completo**, salvo la prueba manual del usuario.

@@ -39,6 +39,7 @@ from ebica.entities.manager import Entity, EntityConfigError, EntityManager
 from ebica.llm.client import LLMClient, LLMError
 from ebica.memory.episodes import MemoryWriter
 from ebica.memory.graph import GraphStore
+from ebica.memory.retrieval import MemoryRetriever
 from ebica.perception.embeddings import SentenceTransformerEmbedder
 
 # CONSTANTE: máximo de eventos de historial que se envían al conectar.
@@ -113,8 +114,10 @@ class Engine:
             self.bus.emit(config.id, "memory.seed_imported", report.as_dict())
         await self.deactivate()
         self.active = entity
+        retriever = MemoryRetriever(self.memory.graph) if self.memory is not None else None
         self.orchestrator = Orchestrator(
-            entity, self.bus, self.manager.save_state, llm=self.llm, gpu=self.gpu, memory=self.memory
+            entity, self.bus, self.manager.save_state, llm=self.llm, gpu=self.gpu,
+            memory=self.memory, retriever=retriever,
         )
         self.orchestrator.start()
 

@@ -13,8 +13,9 @@ El turno del usuario (CP5, §6.2 sin las etapas de fases posteriores) también
 vive aquí: percepción → appraisal → impulsos y drives → prompt → respuesta.
 La API solo transporta. Antes del appraisal corre la vía baja (CP5 B1–B2):
 si se dispara, la entidad responde en el impulso y el appraisal llega después.
-Toda llamada al LLM pasa por la cola de GPU. Tras responder, el turno se
-escribe en la memoria episódica (CP6, D1-37). La máquina de modos y el reloj
+Toda llamada al LLM pasa por la cola de GPU. Antes de responder, la vía alta
+recupera recuerdos (CP7, §7.3); tras responder, el turno se escribe en la
+memoria episódica (CP6, D1-37). La máquina de modos y el reloj
 simulado llegan en Fase 2. El reloj solo es
 inyectable (`now`), para probar con tiempo falso.
 """
@@ -44,9 +45,14 @@ from ebica.core.state import ConversationTurn, EntityState
 from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
 from ebica.llm.client import LLMClient, LLMError, LLMResult
-from ebica.llm.prompt_assembler import build_dialogue_messages, build_impulsive_messages
+from ebica.llm.prompt_assembler import (
+    build_dialogue_messages,
+    build_impulsive_messages,
+    build_memory_sections,
+)
 from ebica.llm.refusal import BUFFER_CHARS, choose_prefix, detect_refusal, join_prefill, with_prefill
-from ebica.memory.episodes import MemoryWriter
+from ebica.memory.episodes import MemoryWriter, normalize_topics
+from ebica.memory.retrieval import MemoryRetriever, RetrievalResult
 from ebica.perception.appraisal import (
     Appraisal,
     AppraisalError,
@@ -92,6 +98,7 @@ class Orchestrator:
         llm: LLMClient | None = None,
         gpu: GpuQueue | None = None,
         memory: MemoryWriter | None = None,
+        retriever: MemoryRetriever | None = None,
     ) -> None:
         """
         Prepara la dinámica con los parámetros que derivan de los rasgos.
@@ -99,8 +106,9 @@ class Orchestrator:
         `save_state` persiste el estado (lo da el EntityManager); `llm` es
         necesario para los turnos; `gpu` es la cola compartida del motor (si
         falta, se crea una propia); `memory` escribe cada turno en Neo4j (CP6; sin
-        ella, la entidad no guarda episodios); `now` y `tick_seconds` se
-        reemplazan en las pruebas.
+        ella, la entidad no guarda episodios); `retriever` recupera recuerdos
+        (CP7; usa el embedder de `memory`, así que solo funciona junto a ella); `now` y
+        `tick_seconds` se reemplazan en las pruebas.
         """
         self.entity = entity
         self.bus = bus
@@ -109,6 +117,9 @@ class Orchestrator:
         self.llm = llm
         self.gpu = gpu or GpuQueue(bus)
         self.memory = memory
+        self.retriever = retriever
+        # Los hechos esenciales ya van en «Quién soy»: no se recuperan (D1-46).
+        self.core_fact_ids = [fact.id for fact in entity.config.seed_biography.core_facts]
         self._save_state = save_state
         self.parameters = derive_parameters(entity.config.traits)
         self.affect_dynamics = AffectDynamics.from_parameters(self.parameters)
@@ -311,11 +322,15 @@ class Orchestrator:
                     "affect_after": summary["affect_event"].payload,
                     "temperature": summary["temperature"],
                     "refusals": summary["refusals"],
+                    # Lo recordado (episodios, hechos, desglose) o el error; None
+                    # sin memoria o en la ruta impulsiva, que no recupera (§5.4).
+                    "retrieval": summary.get("retrieval"),
                     # None si la memoria está desactivada; si no, lo escrito o el error.
                     "memory": memory_event.payload if memory_event else None,
                     "latency": {
                         "low_road_ms": low_road_ms,
                         "appraisal_s": summary["appraisal_s"],
+                        "retrieval_ms": summary.get("retrieval_ms"),
                         "first_token_s": result.first_token_s,
                         "response_s": result.total_s,
                         "memory_s": memory_s if memory_event else None,
@@ -329,22 +344,40 @@ class Orchestrator:
     async def _normal_turn(self, text: str, perception_id: str, summary: dict) -> AsyncIterator[str]:
         """
         Vía alta (§6.2): appraisal (con la regla del sarcasmo) → impulsos y
-        alivio de drives → respuesta `dialogue` con la temperatura del ánimo.
+        alivio de drives → recuerdos con el ánimo ya actualizado (CP7) →
+        respuesta `dialogue` con la temperatura del ánimo.
+
+        El embedding del mensaje se calcula en paralelo con el appraisal (D1-49):
+        la CPU trabaja mientras la GPU evalúa, así la recuperación casi no
+        retrasa el primer token.
         """
-        appraisal_started = time.perf_counter()
-        appraisal, corrections, appraisal_event = await self._appraise(text, perception_id)
-        summary["appraisal_s"] = time.perf_counter() - appraisal_started
-        affect_event = self.apply_appraisal(appraisal, corrections, cause_id=appraisal_event.id)
+        retrieving = self.retriever is not None and self.memory is not None
+        query = asyncio.create_task(self._embed_query(text)) if retrieving else None
+        try:
+            appraisal_started = time.perf_counter()
+            appraisal, corrections, appraisal_event = await self._appraise(text, perception_id)
+            summary["appraisal_s"] = time.perf_counter() - appraisal_started
+            affect_event = self.apply_appraisal(appraisal, corrections, cause_id=appraisal_event.id)
+            retrieval, retrieval_event = await self._retrieve(query, appraisal, cause_id=affect_event.id)
+        finally:
+            if query is not None and not query.done():
+                query.cancel()
+        summary.update(
+            retrieval=retrieval_event.payload if retrieval_event else None,
+            retrieval_ms=retrieval.elapsed_ms if retrieval else None,
+        )
 
         state = self.state
         temperature = dialogue_temperature(state.affect)
         messages = build_dialogue_messages(
-            self.entity.config, text, state.affect, state.drives, state.recent_turns
+            self.entity.config, text, state.affect, state.drives, state.recent_turns,
+            memories=build_memory_sections(retrieval, self.now()),
         )
         result = LLMResult()
         refusals: list[dict] = []
         response = self._respond(
-            messages, "dialogue", GpuPriority.RESPONSE, affect_event.id, result, refusals, temperature
+            messages, "dialogue", GpuPriority.RESPONSE,
+            retrieval_event.id if retrieval_event else affect_event.id, result, refusals, temperature,
         )
         async with aclosing(response) as pieces:
             async for piece in pieces:
@@ -354,6 +387,47 @@ class Orchestrator:
             temperature=temperature, result=result, refusals=refusals,
             completed_cause_id=result.response_event_id,
         )
+
+    async def _embed_query(self, text: str) -> tuple[list[float], float]:
+        """Embedding del mensaje para buscar recuerdos; devuelve el vector y los ms que tardó."""
+        started = time.perf_counter()
+        [vector] = await self.memory.embedder.embed([text], "query")
+        return vector, (time.perf_counter() - started) * 1000
+
+    async def _retrieve(
+        self, query: asyncio.Task | None, appraisal: Appraisal, cause_id: str
+    ) -> tuple[RetrievalResult | None, Event | None]:
+        """
+        Recupera recuerdos y hechos con el ánimo actual (§6.2, etapa 4; §7.3).
+
+        Excluye los intercambios que ya están literales en la conversación
+        reciente y los hechos esenciales (D1-46). Emite `memory.retrieved`; si
+        Neo4j o el embedder fallan, `memory.retrieve_failed` y el turno sigue
+        sin recuerdos (D1-49). Devuelve (None, None) si no hay recuperador.
+        """
+        if query is None:
+            return None, None
+        state = self.state
+        try:
+            vector, embed_ms = await query
+            result = await self.retriever.retrieve(
+                self.entity_id, vector, affect=state.affect, k=self.parameters.k_retrieval,
+                lambda_mmr=self.parameters.lambda_mmr, now=self.now(),
+                topics=normalize_topics(appraisal.topics),
+                since=state.recent_turns[0].ts if state.recent_turns else None,
+                excluded_fact_ids=self.core_fact_ids,
+            )
+        except Exception as error:  # noqa: BLE001 — cualquier fallo de Neo4j o del embedder
+            event = self.bus.emit(
+                self.entity_id, "memory.retrieve_failed",
+                {"error": f"{type(error).__name__}: {error}"}, cause_id=cause_id,
+            )
+            return None, event
+        event = self.bus.emit(
+            self.entity_id, "memory.retrieved", result.as_dict() | {"embed_ms": round(embed_ms, 1)},
+            cause_id=cause_id,
+        )
+        return result, event
 
     async def _impulsive_turn(
         self, text: str, perception_id: str, low_road: LowRoadResult, summary: dict

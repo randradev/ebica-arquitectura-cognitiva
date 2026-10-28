@@ -25,6 +25,8 @@ from ebica.entities.manager import EntityManager
 from ebica.identity.traits import Traits, derive_parameters
 from ebica.llm.client import LLMClient
 from ebica.memory.episodes import WrittenEpisode
+from ebica.memory.retrieval import EpisodeCandidate, RetrievalResult, RetrievedFact, score_episode
+from fake_embedder import FakeEmbedder
 from ebica.llm.prompt_assembler import (
     FEELINGS_HEADER,
     IMPULSIVE_INSTRUCTION,
@@ -163,7 +165,8 @@ def test_dialogue_messages_order_and_stable_prefix():
 
 
 async def run_turn(
-    tmp_path, text="hola", appraisal_reply=NEUTRAL_APPRAISAL, turns=1, traits=CALISTO, memory=None
+    tmp_path, text="hola", appraisal_reply=NEUTRAL_APPRAISAL, turns=1, traits=CALISTO, memory=None,
+    retriever=None,
 ):
     """Crea una entidad, la despierta y procesa `turns` mensajes; devuelve lo necesario para revisar."""
     bus = EventBus()
@@ -174,7 +177,9 @@ async def run_turn(
     ))
     transport, bodies = turn_transport("Ho", "la", appraisal=appraisal_reply)
     async with LLMClient(bus, transport=transport) as llm:
-        orchestrator = Orchestrator(entity, bus, manager.save_state, llm=llm, memory=memory)
+        orchestrator = Orchestrator(
+            entity, bus, manager.save_state, llm=llm, memory=memory, retriever=retriever
+        )
         orchestrator.wake()
         queue = bus.subscribe()
         before = entity.state.model_copy(deep=True)
@@ -207,8 +212,9 @@ async def test_turn_event_chain(tmp_path):
     assert dialogue_response.cause_id == dialogue_request.id
     assert turn.cause_id == dialogue_response.id
     assert set(turn.payload["latency"]) == {
-        "low_road_ms", "appraisal_s", "first_token_s", "response_s", "memory_s", "total_s"
+        "low_road_ms", "appraisal_s", "retrieval_ms", "first_token_s", "response_s", "memory_s", "total_s"
     }
+    assert turn.payload["retrieval"] is None and turn.payload["latency"]["retrieval_ms"] is None
     # Sin memoria (pruebas, EBICA_MEMORY=off) no se escribe nada y el turno lo dice.
     assert turn.payload["memory"] is None and turn.payload["latency"]["memory_s"] is None
     assert "memory.written" not in by_type
@@ -405,6 +411,8 @@ class FakeMemory:
         """`fail=True` simula que Neo4j no responde."""
         self.fail = fail
         self.calls: list[dict] = []
+        # La recuperación usa el embedder de la memoria (CP7).
+        self.embedder = FakeEmbedder()
 
     async def write_turn(self, entity_id, **values):
         """Registra el turno y devuelve un episodio escrito, o lanza un error."""
@@ -470,3 +478,92 @@ async def test_impulsive_turn_is_written_too(tmp_path):
     assert memory.calls[0]["appraisal"].hostility == pytest.approx(HOSTILE_REPLY["hostility"])
     assert by_type["memory.written"][0].cause_id == after_appraisal.id
     assert by_type["turn.completed"][0].cause_id == by_type["memory.written"][0].id
+
+
+# ------------------------------------------------------------ recuperación (CP7 C)
+
+
+class FakeRetriever:
+    """Hace las veces de `MemoryRetriever`: registra las consultas y devuelve un recuerdo fijo."""
+
+    def __init__(self, fail: bool = False) -> None:
+        """`fail=True` simula que Neo4j no responde."""
+        self.fail = fail
+        self.calls: list[dict] = []
+
+    async def retrieve(self, entity_id, query_vector, **values):
+        """Registra la consulta y devuelve el episodio de Toby y un hecho, o lanza un error."""
+        self.calls.append({"entity_id": entity_id, "vector": query_vector, **values})
+        if self.fail:
+            raise ConnectionError("Neo4j no responde")
+        toby = EpisodeCandidate(
+            id="ep-toby", kind="dialogue", ts=values["now"], text="Me dijeron: «Adopté un perro, Toby.»",
+            valence=0.0, arousal=0.5, importance=0.0, embedding=query_vector,
+        )
+        scored = score_episode(toby, 0.6, values["now"], values["affect"])
+        return RetrievalResult(
+            episodes=[scored], facts=[RetrievedFact("f-004", "Soy Piscis.", 0.55)],
+            candidates=[scored], k_effective=values["k"], elapsed_ms=12.0,
+        )
+
+
+async def test_normal_turn_retrieves_before_answering(tmp_path):
+    """§6.2 etapa 4: afecto → memory.retrieved → diálogo, con los recuerdos en el prompt."""
+    retriever = FakeRetriever()
+    memory = FakeMemory()
+    orchestrator, _, events, bodies, _ = await run_turn(
+        tmp_path, appraisal_reply={**NEUTRAL_APPRAISAL, "topics": ["Perros"]}, memory=memory, retriever=retriever,
+    )
+    by_type = events_by_type(events)
+    affect = next(e for e in by_type["affect.updated"] if e.payload["source"] == "appraisal")
+    retrieved = by_type["memory.retrieved"][0]
+    dialogue_request = by_type["llm.request"][-1]
+    turn = by_type["turn.completed"][0]
+
+    [call] = retriever.calls
+    assert memory.embedder.calls == [(["hola 0"], "query")]
+    assert call["topics"] == ["perro"] and call["since"] is None
+    assert call["k"] == orchestrator.parameters.k_retrieval
+    assert call["affect"] == orchestrator.state.affect  # el ánimo ya actualizado por el appraisal
+    assert retrieved.cause_id == affect.id and dialogue_request.cause_id == retrieved.id
+    system = bodies[-1]["messages"][0]["content"]
+    assert "Adopté un perro, Toby." in system and "- Soy Piscis." in system
+    assert turn.payload["retrieval"]["episodes"][0]["id"] == "ep-toby"
+    assert turn.payload["latency"]["retrieval_ms"] == 12.0
+
+
+async def test_retrieval_excludes_recent_turns_and_core_facts(tmp_path):
+    """D1-46: desde el segundo turno, `since` es el intercambio más antiguo; los esenciales se excluyen."""
+    retriever = FakeRetriever()
+    orchestrator, _, _, _, _ = await run_turn(tmp_path, turns=2, memory=FakeMemory(), retriever=retriever)
+
+    first, second = retriever.calls
+    assert first["since"] is None
+    assert second["since"] == orchestrator.state.recent_turns[0].ts
+    assert second["excluded_fact_ids"] == orchestrator.core_fact_ids
+
+
+async def test_retrieval_failure_does_not_break_the_turn(tmp_path):
+    """Si Neo4j falla al recuperar, el turno responde sin recuerdos y queda `memory.retrieve_failed`."""
+    _, _, events, bodies, pieces = await run_turn(
+        tmp_path, memory=FakeMemory(), retriever=FakeRetriever(fail=True)
+    )
+    by_type = events_by_type(events)
+    failed = by_type["memory.retrieve_failed"][0]
+
+    assert pieces == ["Ho", "la"]
+    assert by_type["llm.request"][-1].cause_id == failed.id
+    assert "Lo que me viene a la mente" not in bodies[-1]["messages"][0]["content"]
+    assert by_type["turn.completed"][0].payload["retrieval"] == failed.payload
+
+
+async def test_impulsive_turn_does_not_retrieve(tmp_path):
+    """§5.4: la vía baja responde sin recuperación profunda."""
+    retriever = FakeRetriever()
+    _, _, events, _, _ = await run_turn(
+        tmp_path, text="Eres una inútil.", appraisal_reply=HOSTILE_REPLY, memory=FakeMemory(), retriever=retriever
+    )
+
+    assert retriever.calls == []
+    assert "memory.retrieved" not in events_by_type(events)
+    assert events_by_type(events)["turn.completed"][0].payload["retrieval"] is None

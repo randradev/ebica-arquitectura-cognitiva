@@ -258,6 +258,9 @@ def test_conversation_endpoint_returns_saved_turns(client):
 class FakeSeedMemory:
     """Hace las veces de `MemoryWriter` en la API: registra las importaciones o falla a pedido."""
 
+    # El servidor crea el recuperador sobre `memory.graph`; sin turnos, no se usa.
+    graph = None
+
     def __init__(self, fail: bool = False) -> None:
         """`fail=True` simula que Neo4j no responde."""
         self.fail = fail

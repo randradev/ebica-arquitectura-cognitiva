@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7: plan aprobado (2026-10-27), D1-43 a D1-51 confirmadas; parte A en curso.**
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo (2026-10-27)**, salvo la prueba manual del usuario; decisiones hasta D1-51.
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -554,7 +554,7 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - integración: la entidad no ve recuerdos de otra; la labilidad sube;
   - benchmark en `test`: recall@k ≥ 80 % y ≤ 1 control con recuerdos (umbrales a confirmar en D1-51).
 
-**C · Conexión con el turno, el prompt y la consola**
+**C · Conexión con el turno, el prompt y la consola** — *hecha (2026-10-27): de punta a punta 8/10 ✔ (estricto); controles sin efecto en las respuestas; hallazgo de confusión de la fuente para CP8 (ver `REPORTE.md`).*
 - En `_normal_turn`, el embedding del mensaje corre **en paralelo con el appraisal** (CPU mientras la GPU evalúa) y la recuperación, después de los impulsos (§6.2, etapa 4), con el ánimo ya actualizado (D1-49). La ruta impulsiva no recupera (§5.4).
 - Prompt: secciones 4 «Lo que me viene a la mente» y 5 «Lo que sé», después de «Cómo me siento» y antes de la conversación reciente, con un tope de tokens provisional hasta CP9 (D1-50).
 - Evento `memory.retrieved` (elegidos, candidatos, desglose, k efectivo y latencia). `turn.completed` agrega `latency.retrieval_ms`.

@@ -254,3 +254,109 @@ async def test_evoking_raises_lability_only_when_asked(graph):
     assert untouched == [{"l": 0.0}]
     assert raised[0]["l"] == pytest.approx(lability_increment(-0.8, 0.6))
     assert raised[0]["evoked"]
+
+
+# ------------------------------------------------------------ prompt (CP7 C)
+
+from ebica.llm.prompt_assembler import (  # noqa: E402
+    DIALOGUE_MEMORY_MAX_CHARS,
+    FACTS_HEADER,
+    FEELINGS_HEADER,
+    MEMORIES_HEADER,
+    MEMORIES_NOTE,
+    MEMORY_SECTIONS_MAX_TOKENS,
+    build_dialogue_messages,
+    build_memory_sections,
+    describe_tone,
+    describe_when,
+    estimate_tokens,
+)
+from ebica.core.state import EntityConfig  # noqa: E402
+from ebica.memory.retrieval import RetrievalResult, RetrievedFact  # noqa: E402
+
+
+def retrieval_with(episodes=(), facts=()) -> RetrievalResult:
+    """Un resultado de recuperación armado a mano."""
+    scored = [score_episode(item, 0.6, NOW, CALM) for item in episodes]
+    return RetrievalResult(episodes=scored, facts=list(facts), candidates=scored, k_effective=8)
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected"),
+    [
+        (timedelta(minutes=10), "hace un rato"),
+        (timedelta(hours=5), "hace unas horas"),
+        (timedelta(hours=30), "ayer"),
+        (timedelta(days=5), "hace 5 días"),
+        (timedelta(days=28), "hace 4 semanas"),
+    ],
+)
+def test_describe_when_recent(delta, expected):
+    """El tiempo de un recuerdo, en palabras y sin la hora exacta."""
+    assert describe_when(NOW - delta, NOW) == expected
+
+
+def test_describe_when_old_uses_month_and_year():
+    """Lo lejano se dice por mes y año («en noviembre de 2025»)."""
+    assert describe_when(datetime(2025, 11, 29, tzinfo=timezone.utc), NOW) == "en noviembre de 2025"
+
+
+def test_describe_tone_by_valence():
+    """El tono sale de la valencia guardada; cerca de 0 no se dice nada."""
+    assert describe_tone(-0.75) == "lo recuerdo con dolor"
+    assert describe_tone(-0.3) == "lo recuerdo con incomodidad"
+    assert describe_tone(0.0) == ""
+    assert describe_tone(0.7) == "lo recuerdo con mucha alegría"
+
+
+def test_memory_sections_text():
+    """Sección 4 con encabezado, nota, cuándo y tono; sección 5 con los hechos; el diálogo largo se recorta."""
+    long_dialogue = candidate("x" * (DIALOGUE_MEMORY_MAX_CHARS + 100), vec(a0=1), ts=NOW - timedelta(days=2))
+    seed = EpisodeCandidate(
+        id="ep-critica", kind="seed", ts=datetime(2025, 7, 12, tzinfo=timezone.utc),
+        text="Un amigo de la Su criticó mi obra. " * 20, valence=-0.75, arousal=0.75, importance=0.8,
+        embedding=vec(a1=1),
+    )
+    text = build_memory_sections(
+        retrieval_with([long_dialogue, seed], [RetrievedFact("f-004", "Soy Piscis.", 0.55)]), NOW
+    )
+
+    assert text.startswith(f"{MEMORIES_HEADER}\n{MEMORIES_NOTE}\n- Hace 2 días: ")
+    assert "x" * DIALOGUE_MEMORY_MAX_CHARS + "…" in text and "x" * (DIALOGUE_MEMORY_MAX_CHARS + 1) not in text
+    assert "- En julio de 2025: Un amigo de la Su" in text and "(lo recuerdo con dolor)" in text
+    assert text.count("criticó mi obra") == 20  # la semilla va completa
+    assert text.endswith(f"{FACTS_HEADER}\n- Soy Piscis.")
+
+
+def test_memory_sections_respect_the_budget():
+    """D1-50: con muchos recuerdos largos, se descartan los últimos hasta caber en el tope."""
+    episodes = [
+        EpisodeCandidate(id=f"ep-{i}", kind="seed", ts=NOW, text=f"recuerdo{i} " + "palabra " * 150,
+                         valence=0.0, arousal=0.5, importance=0.5, embedding=vec(a0=1))
+        for i in range(10)
+    ]
+    text = build_memory_sections(retrieval_with(episodes), NOW)
+
+    assert estimate_tokens(text) <= MEMORY_SECTIONS_MAX_TOKENS + estimate_tokens(f"{MEMORIES_HEADER} {MEMORIES_NOTE}")
+    assert "recuerdo0 " in text and "recuerdo9 " not in text
+
+
+def test_nothing_retrieved_adds_nothing():
+    """Sin recuperación o sin resultados, el prompt no cambia."""
+    config = EntityConfig(id="aurora", name="Aurora", persona="Soy reservada.", ego_ideal=["No miento."])
+
+    assert build_memory_sections(None, NOW) == build_memory_sections(retrieval_with(), NOW) == ""
+    assert build_dialogue_messages(config, "hola", CALM, {}, (), memories="") == build_dialogue_messages(
+        config, "hola", CALM, {}, ()
+    )
+
+
+def test_memories_go_after_feelings_in_the_system_prompt():
+    """§5.13: las secciones 4–5 van después de «Cómo me siento» y antes de la conversación."""
+    config = EntityConfig(id="aurora", name="Aurora", persona="Soy reservada.", ego_ideal=["No miento."])
+    memories = build_memory_sections(retrieval_with(facts=[RetrievedFact("f-1", "Restauro muebles.", 0.6)]), NOW)
+
+    system = build_dialogue_messages(config, "hola", CALM, {}, (), memories=memories)[0]["content"]
+
+    assert system.index(FEELINGS_HEADER) < system.index(FACTS_HEADER)
+    assert system.endswith("- Restauro muebles.")

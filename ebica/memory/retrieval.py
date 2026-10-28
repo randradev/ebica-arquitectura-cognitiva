@@ -50,6 +50,8 @@ FACT_CANDIDATES = 10
 # valencia negativa) la atención se estrecha; con buen ánimo se abre.
 THREAT_AROUSAL, THREAT_VALENCE, GOOD_MOOD_VALENCE = 0.6, -0.1, 0.3
 K_MIN = 2
+# CONSTANTE: caracteres del texto de lo elegido que van en el evento, para la consola.
+PREVIEW_CHARS = 120
 # CONSTANTES: aumento de la labilidad al evocar (D1-48): una base, más la
 # discrepancia entre el afecto del recuerdo y el actual.
 LABILITY_BASE, LABILITY_DISCREPANCY = 0.1, 0.2
@@ -128,10 +130,11 @@ class ScoredEpisode:
     commitment: float
     total: float
 
-    def as_dict(self) -> dict:
-        """Versión JSON, sin el embedding ni el texto completo."""
+    def as_dict(self, preview: bool = False) -> dict:
+        """Versión JSON, sin el embedding; con `preview`, el comienzo del texto (para la consola)."""
         c = self.candidate
-        return {
+        data = {} if not preview else {"preview": " ".join(c.text.split())[:PREVIEW_CHARS]}
+        return data | {
             "id": c.id, "kind": c.kind, "sources": sorted(c.sources),
             "similarity": round(self.similarity, 3), "recency": round(self.recency, 3),
             "importance": round(self.importance, 3), "mood": round(self.mood, 3),
@@ -188,8 +191,8 @@ class RetrievedFact:
     similarity: float
 
     def as_dict(self) -> dict:
-        """Versión JSON."""
-        return {"id": self.id, "similarity": round(self.similarity, 3)}
+        """Versión JSON, con el texto del hecho (es corto)."""
+        return {"id": self.id, "text": self.text, "similarity": round(self.similarity, 3)}
 
 
 @dataclass
@@ -206,7 +209,7 @@ class RetrievalResult:
     def as_dict(self) -> dict:
         """Versión JSON para el evento."""
         return {
-            "episodes": [item.as_dict() for item in self.episodes],
+            "episodes": [item.as_dict(preview=True) for item in self.episodes],
             "facts": [item.as_dict() for item in self.facts],
             "candidates": [item.as_dict() for item in self.candidates],
             "k_effective": self.k_effective,
