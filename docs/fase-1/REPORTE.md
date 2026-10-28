@@ -1892,3 +1892,44 @@ El usuario hizo commit de la evaluación parcial (`0626409`) antes de esta entra
 - Al cargarla, `load_partner` asigna a Ricardo los intercambios guardados en `state.json` antes de CP8 (probado en C).
 
 **CP8 completo** (partes A–D).
+
+---
+
+## 2026-10-28 · Plan de CP9 (propuesta)
+
+- Inspección:
+  - documento base §5.4, §5.6, §5.13 y la tabla de §5.2 (`g_afectivo` no está definido);
+  - `prompt_assembler.py`, el orquestador y los presets del cliente LLM.
+- Mediciones sobre las conversaciones de CP8 (461 respuestas y la sesión manual):
+  - **asteriscos 1 de 461**;
+  - largo de las respuestas: mediana 44 palabras, p90 75;
+  - **real / estimado de tokens 0,95–1,03** (D1-10 calibrado);
+  - contexto variable del turno más pesado: ~1.550 tokens frente al presupuesto de 2.500 de §5.6. En calma casi no habría desalojo; bajo amenaza, sí.
+- Plan detallado en `PLAN.md` (CP9, «plan detallado»), en tres partes:
+  - A: WorkingMemory pura y arreglo de «adio»;
+  - B: integración con el turno, el Prompt Assembler, la sección 7, los eventos y la consola;
+  - C: validación con dos estados opuestos y medición de D1-8.
+- Decisiones nuevas propuestas: **D1-61 a D1-68**. La calibración afectiva (saturación de la valencia y falsas alarmas del appraisal) se propone como checkpoint propio antes de CP11 (D1-67).
+- **Pendiente de aprobación; nada implementado.**
+
+---
+
+## 2026-10-28 · CP9 parte A — WorkingMemory pura
+
+**Decisión del usuario:** plan de CP9 aprobado, con D1-61 a D1-68. Parte A autorizada.
+
+**Cambios**
+- `ebica/workspace/working_memory.py` (nuevo, §5.6), con funciones puras:
+  - `workspace_budget(alerta)`: 2.500 tokens hasta una alerta de 0,6 y, desde ahí, baja lineal hasta 1.250 con alerta 1,0 (D1-62);
+  - `turn_relevance(edad)` = 0,9^edad (D1-63);
+  - `WorkspaceItem` (tipo `turn`/`memory`/`fact`, texto, relevancia, valencia, orden natural, objeto original) con `salience = relevancia · (1 + |valencia|·g_afectivo) · señal · precisión` (`g_afectivo` = 1,0; señal y precisión = 1 hasta CP10 y Fase 3);
+  - `select(ítems, presupuesto)`: de mayor a menor saliencia, entra lo que cabe. Si uno no cabe se desaloja y se sigue: uno más corto y menos saliente puede entrar igual. Lo que entra conserva su orden natural.
+  - Los eventos no llevan texto.
+- Lo fijo (D1-61) no es un ítem: queda fuera del presupuesto por diseño. Su presencia en el prompt se prueba en la parte B, cuando el Prompt Assembler use la pizarra.
+- `ebica/llm/tokens.py` (nuevo): `estimate_tokens` y `TOKENS_PER_WORD` salen del Prompt Assembler, que los reexporta. Así la pizarra no depende del ensamblador (en B será al revés). Se actualiza la calibración: real / estimado 0,95–1,03 en CP8.
+- `ebica/memory/episodes.py` (D1-68): `normalize_topic` aplica el singular **antes** de quitar las tildes; «adiós» → «adios» (antes, «adio»). Los casos anteriores no cambian. Los `Topic` ya creados no se renombran.
+
+**Pruebas**
+- `tests/test_working_memory.py` (nuevo, 11): presupuesto en 5 alertas, relevancia por antigüedad, lo cargado gana a lo neutro, desalojo de lo menos saliente, sin presión no se desaloja nada y se conserva el orden, un ítem corto llena el hueco, el evento sin texto.
+- `tests/test_memory_episodes.py`: 3 casos más de normalización («Adiós», «compás», «teléfonos»).
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `340 passed` (326 + 14).

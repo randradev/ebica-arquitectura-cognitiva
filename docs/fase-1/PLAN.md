@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16). **CP8 parte C completa** (326 pruebas). Apropiaciones 8/20 → 3/20 y atribuciones 2/8 → 8/8. Los criterios de D1-57 (≤ 1) y de cruces (0; hubo 1 de 12) no se cumplen y quedan como limitación aceptada; la opción (a) se probó y se revirtió. Consola verificada por el usuario. **CP8 parte D completa** (migración real de `calisto`: 39 episodios enlazados a Ricardo). **CP8 completo (2026-10-28).** **Siguiente:** plan de CP9 (WorkingMemory y Prompt Assembler completo).
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16). **CP8 parte C completa** (326 pruebas). Apropiaciones 8/20 → 3/20 y atribuciones 2/8 → 8/8. Los criterios de D1-57 (≤ 1) y de cruces (0; hubo 1 de 12) no se cumplen y quedan como limitación aceptada; la opción (a) se probó y se revirtió. Consola verificada por el usuario. **CP8 parte D completa** (migración real de `calisto`: 39 episodios enlazados a Ricardo). **CP8 completo (2026-10-28).** **Plan de CP9 aprobado (2026-10-28)**, decisiones D1-61 a D1-68 confirmadas. **CP9 parte A completa** (WorkingMemory pura; 340 pruebas).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -736,6 +736,87 @@ Cuatro partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - el prompt ensamblado nunca supera `num_ctx` (8192) menos `max_tokens` del preset: Ollama trunca en silencio los prompts más largos (medido en CP1);
   - D1-8: se mide cuántos tokens ocupan los recuerdos literales y cuántos se desalojan por falta de presupuesto. Si los recuerdos relevantes no caben, se propone añadir el resumen con el LLM (opción b);
   - revisión manual: el mismo mensaje con dos estados opuestos produce respuestas distintas en tono y largo (registrado en el `REPORTE`).
+
+#### CP9 — plan detallado (propuesta del 2026-10-28, pendiente de aprobación)
+
+**Estado real inspeccionado (2026-10-28):**
+- El prompt se arma directamente en `build_dialogue_messages`:
+  - sección 1 «Quién soy», unos 930 tokens, estable;
+  - sección 2, el estado en palabras;
+  - secciones 4–5 con un **tope provisional de 1.200 tokens** (D1-50);
+  - sección 6, la persona;
+  - sección 8, los 6 intercambios del hilo de la persona.
+- No existe `ebica/workspace/`, ni saliencia, ni desalojo, ni sección 7.
+- **Medido en las conversaciones de CP8** (461 respuestas y la sesión manual del usuario):
+  - acotaciones entre asteriscos: **1 de 461**;
+  - largo de las respuestas: mediana de 44 palabras, p90 de 75, máximo 129;
+  - conteo aproximado de tokens frente a `usage.prompt_tokens`: real / estimado entre **0,95 y 1,03** (mediana 0,99, n = 20). D1-10 ya está calibrado;
+  - turno más pesado de la sesión manual: Quién soy ~930 tokens, estado ~50, recuerdos ~545, hechos ~60, persona ~95, conversación ~780, mensaje ~25. Total ~2.490, del que el **contexto variable es ~1.550**.
+- **Consecuencia:** con el presupuesto de §5.6 (2.500 tokens de contexto variable), hoy casi nunca habría desalojo. El presupuesto solo se vuelve limitante cuando la alerta alta lo reduce. Es justo lo que pide §5.4: bajo amenaza, menos recuerdos y foco en lo inmediato. En la sesión manual Calisto pasó 15 de 21 turnos con la alerta ≥ 0,95.
+- `g_afectivo` (fórmula de saliencia de §5.6) no está definido en la tabla de §5.2.
+
+**Alcance:**
+- la WorkingMemory de §5.6 (ítems tipados, saliencia, presupuesto reducido por la alerta, desalojo y eventos);
+- el Prompt Assembler armado desde la pizarra;
+- la sección 7 «Cómo expresarme».
+
+**Fuera de alcance:**
+- el pensamiento activo (sección 3) y las señales de los micro-agentes: CP10, que conecta las señales a la saliencia; hasta entonces valen 1;
+- las marcas de las defensas: Fase 3;
+- la calibración afectiva: ver D1-67.
+
+Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**A · WorkingMemory pura (`ebica/workspace/working_memory.py`), sin tocar el turno** — *hecha (2026-10-28): 14 pruebas nuevas; `estimate_tokens` pasa a `ebica/llm/tokens.py` (ver `REPORTE.md`).*
+- Ítems tipados: `turn` (un intercambio de la conversación reciente), `memory` (un episodio recuperado), `fact` y los fijos (D1-61). Cada ítem tiene su texto, sus tokens estimados (D1-10), su relevancia, su valencia y su saliencia.
+- `salience = relevancia · (1 + |valencia|·g_afectivo) · señal · precisión`, con señal y precisión en 1 (D1-63).
+- `budget(arousal)` (D1-62) y `select(items, budget)`: entra lo más saliente hasta llenar el presupuesto y se informa lo desalojado con su saliencia.
+- El orden del prompt no es el de la saliencia: lo que entra conserva su orden natural (los recuerdos según MMR y la conversación por fecha).
+- Arreglo pequeño (D1-68): `_singular` deja de convertir «adiós» en «adio».
+- **Aceptación** (pytest):
+  - con un presupuesto chico se desaloja primero lo menos saliente;
+  - la alerta alta reduce el presupuesto según la fórmula;
+  - un recuerdo cargado (|valencia| alta) gana a uno neutro con la misma relevancia;
+  - los ítems fijos nunca se desalojan;
+  - con presupuesto de sobra no se desaloja nada y el orden se conserva.
+
+**B · Integración: turno, Prompt Assembler, eventos y consola**
+- El orquestador arma la pizarra en cada turno con lo que ya produce (intercambios del hilo de la persona, recuerdos, hechos). Emite `wm.updated` (presupuesto, usado, ítems con su saliencia) y `wm.evicted` (lo que no cupo), encadenados por `cause_id` entre la recuperación y el diálogo.
+- El Prompt Assembler arma las secciones 4, 5 y 8 desde lo seleccionado. El tope de 1.200 de D1-50 desaparece: lo reemplaza el presupuesto.
+- Sección 7 «Cómo expresarme» (D1-64): largo y tono en palabras según el estado. Va al final del sistema, antes de la conversación. Sin instrucción sobre asteriscos (D1-65).
+- La ruta impulsiva no cambia (contexto mínimo, sin pizarra).
+- Consola: una línea «Pizarra» en «Último turno» (presupuesto, usado y desalojados, con el detalle al pasar el mouse).
+- **Aceptación:**
+  - pytest con el LLM y la memoria simulados:
+    - la cadena `memory.retrieved → wm.updated → llm.request`;
+    - con alerta alta entra menos al prompt y aparece `wm.evicted`;
+    - la sección 7 no lleva números;
+    - el prompt nunca supera 8.192 − `max_tokens`;
+  - `tsc` y `oxlint` sin errores.
+
+**C · Validación con el LLM**
+- **Dos estados opuestos ante el mismo mensaje** (§12; criterio del plan de CP9): 6 mensajes (neutro, pregunta personal, cálido, crítica leve, una noticia, una pregunta de recuerdo), cada uno con Calisto en calma (ánimo en reposo) y amenazada (ánimo inyectado con `/api/affect/impulse`: valencia −0,6, alerta 0,9). Se mide el largo de las respuestas y lo que entró a la pizarra; el tono se revisa a mano. Casos escritos antes y revisados por el usuario.
+- **D1-8:** en esas corridas y en `prueba_recuerdo_vivo.py`, contar cuántos recuerdos se desalojan en calma y bajo amenaza. Si en calma se desaloja un recuerdo esperado, se propone el resumen con el LLM (D1-8 b).
+- **Regresión:** `prueba_recuerdo_vivo.py` ≥ 8/10 en calma.
+
+**Decisiones para CP9** (2026-10-28: todas confirmadas)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1-61 | Qué es fijo y qué se puede desalojar | — | **Fijos:** sección 1 (estable, para la caché de prefijo), el estado (2), la persona (6), cómo expresarme (7), el mensaje actual y el **último intercambio** (sin él, la entidad pierde el hilo inmediato). **Desalojables:** los demás intercambios, los recuerdos y los hechos. El presupuesto se aplica solo a los desalojables. |
+| D1-62 | Presupuesto y reducción por la alerta | — | **2.500 tokens** de contexto variable (§5.6) × `(1 − 0,5·max(0, alerta − 0,6)/0,4)`: 2.500 hasta una alerta de 0,6 y 1.250 con alerta 1,0 (calibrable). Hoy, unos 1.550 tokens variables en el peor turno: en calma no se desaloja nada; bajo amenaza, sí. |
+| D1-63 | Relevancia por tipo y `g_afectivo` | `g_afectivo`: (a) constante 1,0; (b) derivado de N (`0,5 + N`) | Relevancia: recuerdos = su puntaje de §7.3; hechos = su coseno; intercambios = `0,9^edad` (el penúltimo 0,9, el anterior 0,81…). Así, bajo presión se desalojan primero los recuerdos menos relevantes y los intercambios más viejos. Valencia: la guardada en el recuerdo; 0 en hechos e intercambios. **`g_afectivo` = (a) 1,0**: (b) inventaría una fila nueva en la tabla de §5.2; queda como calibrable. |
+| D1-64 | Contenido de la sección 7 | — | En palabras, según el estado (§5.4). Alerta ≥ 0,6 con valencia < −0,1: «Respondo corto, una o dos frases; no me extiendo». Valencia > 0,3: «Me puedo extender y asociar». Dominancia < 0,25: «Hablo con cautela». En otro caso: «Respondo con naturalidad, en pocas frases» (mediana medida: 44 palabras). `max_tokens` sigue en 400 como tope. |
+| D1-65 | Acotaciones entre asteriscos (pendiente 6 de Fase 0) | Filtro / instrucción / nada | **Nada:** 1 de 461 respuestas. Se cierra el pendiente; se vuelve a mirar si reaparecen. |
+| D1-66 | Criterio de D1-8 (resumen con el LLM) | — | Se propone (b) solo si, en calma, se desaloja algún recuerdo esperado de `prueba_recuerdo_vivo.py`. Bajo amenaza, desalojar es el comportamiento buscado (§5.4), no un fallo. |
+| D1-67 | Saturación de la valencia y falsas alarmas del appraisal (evaluación parcial, §7) | (a) Dentro de CP9; (b) un checkpoint propio de calibración afectiva antes de CP11; (c) dentro de CP11 | **(b)**: es AffectiveEngine y appraisal, no WorkingMemory, y afecta directamente a la medición de vidas medias de CP11. Mezclarlo en CP9 haría imposible saber qué cambió qué. Se planifica al cerrar CP10. |
+| D1-68 | Bug «adiós» → «adio» | Arreglar ahora / después | **Ahora, en la parte A** (una línea y una prueba). Los `Topic` ya creados no se renombran: lo hará el sueño (Fase 2) o una migración si hace falta. |
+
+**Riesgos:**
+- Desalojar bajo amenaza puede hacer que la entidad «olvide» algo que le acaban de preguntar → el último intercambio es fijo, y la parte C lo mide con recuerdo bajo amenaza.
+- Los pesos de relevancia entre tipos no son comparables por naturaleza → regla explícita (D1-63) y saliencias visibles en la consola y en `wm.updated`.
+- La sección 7 puede chocar con la voz de `persona` → revisión manual en C.
+- Con 6 mensajes × 2 estados, la comparación es cualitativa → se registra a mano, sin sacar tasas.
 
 ### CP10 — Micro-agentes y compromisos
 - `ebica/workspace/agents/`: `distress_watch`, `repetition_watch` (similitud de embeddings con los turnos recientes; sube `novelty` y emite señal de cambio de tema), `commitment_watch` (compromisos abiertos en la saliencia) y `homeostasis_watch` (solo la señal). `hostility_watch` ya existe desde CP5 y se integra al mismo contrato.

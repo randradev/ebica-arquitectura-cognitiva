@@ -114,14 +114,21 @@ def _singular(word: str) -> str:
 
 
 def normalize_topic(name: str) -> str:
-    """Nombre canónico de un tema: minúsculas, sin tildes, espacios simples y singular simple."""
-    decomposed = unicodedata.normalize("NFD", name.lower())
+    """
+    Nombre canónico de un tema: minúsculas, singular simple, sin tildes y espacios simples.
+
+    El singular se aplica *antes* de quitar las tildes (D1-68): una palabra con
+    la última vocal acentuada («adiós», «compás») no es un plural, y sin la
+    tilde se confundía con uno («adios» → «adio»).
+    """
+    words = unicodedata.normalize("NFC", name.lower()).split()
+    singular = " ".join(_singular(word) for word in words)
+    decomposed = unicodedata.normalize("NFD", singular)
     # Se quitan las tildes, pero no la virgulilla de la ñ (como en la vía baja).
     without_accents = "".join(
         char for char in decomposed if unicodedata.category(char) != "Mn" or char == "̃"
     )
-    words = unicodedata.normalize("NFC", without_accents).split()
-    return " ".join(_singular(word) for word in words)
+    return unicodedata.normalize("NFC", without_accents)
 
 
 def normalize_topics(names: list[str]) -> list[str]:

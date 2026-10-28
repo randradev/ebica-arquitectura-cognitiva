@@ -97,6 +97,10 @@ def test_importance_examples_and_range():
         ("series", "series"),
         ("padres", "padres"),
         ("Año nuevo", "año nuevo"),
+        # D1-68: una palabra con la última vocal acentuada no es un plural.
+        ("Adiós", "adios"),
+        ("compás", "compas"),
+        ("teléfonos", "telefono"),
     ],
 )
 def test_normalize_topic(raw, expected):

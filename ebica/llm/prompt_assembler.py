@@ -26,6 +26,7 @@ from datetime import datetime
 from ebica.affect.drives import DRIVE_THRESHOLD
 from ebica.affect.vad import VAD
 from ebica.core.state import ConversationTurn, EntityConfig
+from ebica.llm.tokens import TOKENS_PER_WORD, estimate_tokens  # noqa: F401 — se reexportan
 from ebica.memory.retrieval import RetrievalResult, ScoredEpisode
 from ebica.social.partner import PartnerModel, PartnerNow
 
@@ -75,9 +76,6 @@ DIALOGUE_MEMORY_MAX_CHARS = 450
 # CONSTANTE: tope provisional de tokens de las secciones 4 y 5 juntas (D1-50),
 # hasta que la WorkingMemory de CP9 administre el presupuesto completo.
 MEMORY_SECTIONS_MAX_TOKENS = 1200
-# CONSTANTE: estimación de tokens por palabra (D1-10), calibrada con Ollama:
-# en CP3 y CP6 quedó por encima del valor real (conservadora).
-TOKENS_PER_WORD = 1.6
 # CONSTANTES: tono de un recuerdo según la valencia con que se guardó
 # (límite superior, palabras). Cerca de 0 no se dice nada.
 MEMORY_TONE = (
@@ -217,11 +215,6 @@ def describe_when(ts: datetime, now: datetime) -> str:
 def describe_tone(valence: float) -> str:
     """El tono con que se recuerda algo, según su valencia guardada; vacío si es neutro."""
     return next(words for limit, words in MEMORY_TONE if valence < limit)
-
-
-def estimate_tokens(text: str) -> int:
-    """Estimación de tokens por palabras (D1-10), conservadora."""
-    return round(len(text.split()) * TOKENS_PER_WORD)
 
 
 def _memory_line(item: ScoredEpisode, now: datetime) -> str:
