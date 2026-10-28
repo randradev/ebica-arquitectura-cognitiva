@@ -12,7 +12,7 @@
 | ~~Vecinos `Person` como candidatos de la recuperación~~ | §7.3 (CP7 B) | **CP8** | **Cerrado 2026-10-28** (CP8 B, D1-58). |
 | ~~**Confusión de la fuente**~~ | CP7 C | **CP8** | **Cerrado 2026-10-28** con mejora parcial: 8/20 → 3/20 apropiaciones. Lo residual pasa a limitaciones (sección 2). |
 | Importancia 0 para lo que el usuario cuenta de sí | D1-43 (CP7 A) | **CP11** | 2026-10-28, D1-59 (a): se mantiene. Sondeo con +30 días: 10/10 igual, pero no discrimina (un solo episodio pasa el umbral por pregunta). El riesgo es una memoria grande con más de k candidatos; se vuelve a mirar con varios días de uso. |
-| Episodios reales de Calisto sin `INVOLVES` | CP8 | **CP8 D** | D1-60: enlazar los 39 a Ricardo, reescribir el texto y reconstruir su modelo (el usuario confirmó que habló siempre él). |
+| ~~Episodios reales de Calisto sin `INVOLVES`~~ | CP8 | **CP8 D** | **Cerrado 2026-10-28**: 39 de 39 migrados; respaldo en `entities/calisto/respaldos/antes_cp8.json`. |
 | Política ante textos largos y resumen continuo | CP5 / D1-8 | antes de **CP9** | D1-8 (b), resumen con LLM, solo si los recuerdos no caben en el presupuesto. |
 | Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP9–CP11** | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
 | Tope de 1.200 tokens de las secciones 4–5 | D1-50 (CP7) | **CP9** | Provisional; lo reemplaza la WorkingMemory. |
@@ -58,4 +58,4 @@
   - prompt máximo medido: 2.298 tokens.
 - **bge-m3 consulta HuggingFace Hub al cargar** (aviso en el log). Pendiente de CP2, no urgente: fijar la revisión convertida o exigir `safetensors`, para cargar sin red y poder borrar el `.bin`.
 - **El índice vectorial es compartido por todas las entidades.** Desde CP7, `vector_search` tiene un respaldo exacto cuando otra entidad acapara a los vecinos (D1-11).
-- **La memoria real de Calisto** vive en Neo4j (`entity_id: calisto`). Las pruebas en vivo usan una copia de su config con otro id y borran sus nodos al terminar. Los diálogos sobre la memoria («¿qué te dije…?») también quedan como episodios y compiten después con los recuerdos reales.
+- **La memoria real de Calisto** vive en Neo4j (`entity_id: calisto`); desde CP8 D tiene el `Person` de Ricardo y sus 39 episodios enlazados. Las pruebas en vivo usan una copia de su config con otro id y borran sus nodos al terminar. Los diálogos sobre la memoria («¿qué te dije…?») también quedan como episodios y compiten después con los recuerdos reales.

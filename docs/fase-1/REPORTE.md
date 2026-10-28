@@ -1822,3 +1822,73 @@ El usuario hizo commit de la parte B antes de esta entrada.
   - saturación suave de los impulsos;
   - empatía moderada por la confianza o la historia con la persona (`partner_model`);
   - recalibrar D1-23 con conversaciones reales.
+
+---
+
+## 2026-10-28 · CP8 parte D — Migración de la memoria real: script y ensayo
+
+El usuario hizo commit de la evaluación parcial (`0626409`) antes de esta entrada. Parte D autorizada.
+
+**Cambios**
+- `scripts/migrar_personas_cp8.py` (nuevo, D1-60). Para cada episodio de diálogo sin `INVOLVES` con el formato de CP6:
+  - pasa de «Me dijeron: … / Respondí: …» a «Ricardo me dijo: … / Le respondí: …», con el embedding de `bge-m3` recalculado;
+  - actualiza `summary` solo si era igual al texto;
+  - crea `INVOLVES` y `SPOKEN_BY`;
+  - reconstruye el modelo del `primary` con los appraisals de las huellas, en orden de fecha (como `update_partner_model` turno a turno).
+- Garantías del script:
+  - todo va en **una sola consulta** (una transacción);
+  - la huella no se toca;
+  - es idempotente: una segunda pasada no encuentra pendientes;
+  - con `--simular` solo cuenta;
+  - sin `--respaldo` no escribe;
+  - el respaldo guarda en JSON todos los nodos (con sus propiedades) y las relaciones;
+  - no imprime texto de las conversaciones.
+- `.gitignore`: `entities/*/respaldos/`. Los respaldos contienen conversaciones (§13.3); el cambio fuera del alcance directo era necesario para guardarlos en el repositorio local sin versionarlos.
+
+**Ensayo** (copia de los nodos de `calisto` como `calisto-ensayo`, hecha dentro de Neo4j sin leer el texto; script del scratchpad, no versionado)
+- Simulación sobre la Calisto real (solo lectura): 39 episodios de diálogo sin persona, todos con el formato de CP6.
+- Copia fiel: 201 nodos y 163 relaciones (`NEXT` 44 + `DERIVED_FROM` 45 + `ABOUT` 74).
+- Migración de la copia:
+  - respaldo de 201 nodos y 163 relaciones;
+  - modelo de Ricardo: 39 turnos, 0 appraisals ilegibles; temas «arte, identidad, música, pregunta, pintura»; sensibles «academia, amistad, educación»; valencia media +0,03;
+  - **39 episodios migrados**.
+- Verificación en la copia:
+
+| Comprobación | Resultado |
+|---|---|
+| `INVOLVES` / `SPOKEN_BY` hacia `ricardo` | 39 / 39 |
+| Episodios con el formato nuevo / con el viejo | 39 / 0 |
+| `summary` = texto | 39 de 39 |
+| Huellas intactas (siguen con «Me dijeron») | 39 de 39 |
+| Dimensión de los embeddings | 1024 en todos |
+| `Person` | `ricardo`, `n` 39, confianza 0,40, `primary` |
+| Segunda pasada | «nada que migrar» |
+
+- **Recuperación antes y después**, con 5 consultas genéricas, solo ids y similitudes:
+  - el primer recuerdo es el mismo en las 5;
+  - coinciden 7 de 8 elegidos en las 3 consultas con k lleno, y todos en las otras 2 (que suman uno nuevo);
+  - las similitudes cambian ±0,02 (como en la regresión de B).
+- Limpieza: copia borrada y respaldos del ensayo borrados. La Calisto real sigue con 201 nodos y 39 pendientes (simulación repetida).
+
+**Pausa:** la migración real de `calisto` espera la aprobación del usuario.
+
+**Decisión del usuario (mismo día):** ejecutar la migración real.
+
+**Migración real de `calisto`** (servidor detenido; se comprobó que no había nada escuchando en los puertos 8000 ni 8011)
+- `migrar_personas_cp8.py --entidad calisto --respaldo entities/calisto/respaldos/antes_cp8.json`:
+  - respaldo de 201 nodos y 163 relaciones (3,7 MB; legible; ignorado por git);
+  - modelo de Ricardo con 39 turnos;
+  - **39 episodios migrados**.
+- Verificación, idéntica al ensayo:
+  - 39 `INVOLVES` y 39 `SPOKEN_BY` hacia `ricardo`;
+  - 39 episodios con el formato nuevo y 0 con el viejo;
+  - `summary` = texto en los 39;
+  - las 39 huellas intactas;
+  - embeddings de 1024;
+  - `Person` `ricardo` (`n` 39, confianza 0,40, `primary`);
+  - nodos: 202 (201 + el `Person`).
+- Segunda pasada: 0 pendientes.
+- Recuperación: las 5 consultas de control eligen **exactamente los mismos recuerdos** que en la copia migrada del ensayo.
+- Al cargarla, `load_partner` asigna a Ricardo los intercambios guardados en `state.json` antes de CP8 (probado en C).
+
+**CP8 completo** (partes A–D).
