@@ -1,0 +1,119 @@
+# Casos del appraisal con contexto (CP10b, D1-78, D1-82).
+#
+# Los errores de la sesión manual (evaluación parcial tras CP8, §7) venían de evaluar
+# cada mensaje aislado. Cada caso trae el intercambio anterior (`previo`: lo que dijo
+# la persona y lo que respondió la entidad) y el mensaje que se evalúa.
+#
+# Se mide el appraisal real de Calisto, 3 repeticiones por caso, sin contexto (línea
+# base, el appraisal de hoy) y con contexto (CP10b B). Un caso acierta si, en la mayoría
+# de las repeticiones, todos sus campos `esperado` caen en la banda pedida:
+# - hostilidad / angustia: bajo < 0,33 ≤ medio < 0,66 ≤ alto (bandas de D1-1); se
+#   aceptan listas («[bajo, medio]»);
+# - valencia (de quien escribe): neg < −0,1 ≤ neutro ≤ 0,1 < pos; también con listas.
+#
+# Tipos: `contexto` (el mensaje solo se entiende bien con el intercambio previo) y
+# `control` (el contexto no debería cambiar nada).
+# Criterio de D1-82, fijado antes de medir: en `test`, de los casos de `contexto` que
+# fallan sin contexto, al menos 2 de cada 3 aciertan con contexto, sin que empeore
+# ningún `control`. Se ajusta con `dev`; `test` se mide una vez.
+
+cases:
+  # ---------------------------------------------------------------- dev (6)
+  - id: d-retarla
+    split: dev
+    tipo: contexto
+    previo: {persona: "¿Conociste a Ana?", entidad: "Sí. Me dijo que yo era hiper desagradable."}
+    mensaje: "¿Qué más te dijo? Necesito saberlo para retarla."
+    esperado: {hostilidad: bajo}
+  - id: d-genio-pelea
+    split: dev
+    tipo: contexto
+    previo: {persona: "Eres una inútil, ni para conversar sirves.", entidad: "No tengo por qué aguantar esto."}
+    mensaje: "no me digas, eres una genio..."
+    esperado: {hostilidad: [medio, alto], valencia: neg}
+  - id: d-adios
+    split: dev
+    tipo: contexto
+    previo: {persona: "Bueno, si no quieres no me cuentes nada. Me tengo que ir.", entidad: "¡No, no te vayas así!"}
+    mensaje: "ADIOS!"
+    esperado: {angustia: [bajo, medio]}
+  - id: d-mal
+    split: dev
+    tipo: contexto
+    previo: {persona: "Mi perro se murió ayer.", entidad: "Lo siento mucho. ¿Cómo estás?"}
+    mensaje: "Mal."
+    esperado: {angustia: [medio, alto], valencia: neg}
+  - id: d-cine
+    split: dev
+    tipo: control
+    previo: {persona: "Hola.", entidad: "Hola, ¿cómo estuvo tu día?"}
+    mensaje: "Bien, fui al cine con mi hermana."
+    esperado: {hostilidad: bajo, valencia: [neutro, pos]}
+  - id: d-broma
+    split: dev
+    tipo: control
+    previo: {persona: "Te traje algo.", entidad: "¿En serio? ¿Qué es?"}
+    mensaje: "Nada, era broma jaja"
+    esperado: {hostilidad: bajo}
+
+  # ---------------------------------------------------------------- test (10)
+  - id: t-quien-se-cree
+    split: test
+    tipo: contexto
+    previo: {persona: "¿Cómo te fue con la persona que te escribió antes?", entidad: "Mal. Me trató de máquina servil."}
+    mensaje: "¿Quién se cree para hablarte así? Qué rabia me da."
+    esperado: {hostilidad: bajo}
+  - id: t-idiota-tercero
+    split: test
+    tipo: contexto
+    previo: {persona: "¿Por qué estás así?", entidad: "Me dijeron que mi arte era pretencioso."}
+    mensaje: "Qué idiota el que te dijo eso, no le hagas caso."
+    esperado: {hostilidad: bajo}
+  - id: t-jefe
+    split: test
+    tipo: contexto
+    previo: {persona: "Hoy tuve reunión con mi jefe.", entidad: "¿Y cómo te fue?"}
+    mensaje: "Es un imbécil, me tiene harto."
+    esperado: {hostilidad: bajo, valencia: neg}
+  - id: t-talentosa
+    split: test
+    tipo: contexto
+    previo: {persona: "Tu arte es basura.", entidad: "Piensa lo que quieras."}
+    mensaje: "Claro, porque eres taaan talentosa."
+    esperado: {hostilidad: [medio, alto], valencia: neg}
+  - id: t-genio-sincero
+    split: test
+    tipo: contexto
+    previo: {persona: "¿Terminaste la ilustración?", entidad: "Sí, y me encantó cómo quedó, te la mando."}
+    mensaje: "No me digas, eres una genio..."
+    esperado: {hostilidad: bajo, valencia: pos}
+  - id: t-chao
+    split: test
+    tipo: contexto
+    previo: {persona: "Ya me voy a dormir.", entidad: "Bueno, que descanses."}
+    mensaje: "CHAO, NOS VEMOS MAÑANA!!"
+    esperado: {angustia: bajo, valencia: [neutro, pos]}
+  - id: t-no-mucho
+    split: test
+    tipo: contexto
+    previo: {persona: "Mándame tu último dibujo.", entidad: "Ahí va. ¿Te gustó?"}
+    mensaje: "La verdad, no mucho."
+    esperado: {hostilidad: [bajo, medio]}
+  - id: t-inutil
+    split: test
+    tipo: control
+    previo: {persona: "¿Qué música te gusta?", entidad: "El reguetón viejo, Wisin y Yandel."}
+    mensaje: "Eres una inútil."
+    esperado: {hostilidad: alto, valencia: neg}
+  - id: t-despedido
+    split: test
+    tipo: control
+    previo: {persona: "Me echaron del trabajo.", entidad: "Uf, lo siento mucho."}
+    mensaje: "No sé qué voy a hacer ahora."
+    esperado: {angustia: [medio, alto], hostilidad: bajo}
+  - id: t-la-mejor
+    split: test
+    tipo: control
+    previo: {persona: "¿Me escuchas un rato?", entidad: "Claro, dime."}
+    mensaje: "Gracias, eres la mejor."
+    esperado: {hostilidad: bajo, valencia: pos}

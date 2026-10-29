@@ -109,10 +109,12 @@ async def test_promise_creates_an_open_commitment_with_its_links(graph, writer):
     [cid] = written.commitments
     rows = await graph.execute(
         "MATCH (p:Person {entity_id: $e, id: 'ricardo'})-[:PROMISED]->(c:Commitment {entity_id: $e, id: $cid})"
-        "<-[:ABOUT]-(ep:Episode {id: $ep}) RETURN c.text AS text, c.status AS status, c.due AS due",
+        "<-[:ABOUT]-(ep:Episode {id: $ep}) RETURN c.text AS text, c.status AS status, c.due AS due, "
+        "c.context AS context",
         e=entity_id, cid=cid, ep=written.episode_id,
     )
-    assert rows == [{"text": "contarte cómo me fue en la entrevista", "status": "open", "due": None}]
+    assert rows == [{"text": "contarte cómo me fue en la entrevista", "status": "open", "due": None,
+                     "context": "Mañana tengo la entrevista, te cuento cómo me fue."}]
     assert written.as_dict()["commitments"] == [cid]
 
 
@@ -158,7 +160,7 @@ async def test_open_commitments_of_a_person_and_entity_isolation(graph, writer):
     ricardo_open = await people.open_commitments(a, "ricardo")
 
     assert [c["text"] for c in ricardo_open] == ["contarte cómo me fue"]
-    assert ricardo_open[0]["ts"] == NOW
+    assert ricardo_open[0]["ts"] == NOW and ricardo_open[0]["context"] == "Te cuento mañana"
     assert [c["text"] for c in await people.open_commitments(a, "ana")] == ["mandarte la foto de Mora"]
     assert await count(graph, "(:Commitment {entity_id: $e})", e=b) == 1
     crossed = await count(graph, "(x {entity_id: $a})-[]-(y) WHERE y.entity_id <> $a", a=a)

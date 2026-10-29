@@ -111,6 +111,50 @@ def decay(state: VAD, dynamics: AffectDynamics, dt_seconds: float) -> VAD:
     )
 
 
+# CONSTANTE: interruptor de la saturación suave (CP10b, D1-79). Con False, los
+# impulsos de las vivencias vuelven a sumarse y recortarse como hasta CP10.
+SOFT_SATURATION = True
+
+
+def soften(value: float, delta: float, low: float, high: float) -> float:
+    """
+    El impulso `delta` amortiguado según cuánto se acercó ya `value` al extremo
+    hacia el que empuja (D1-79): se multiplica por `1 − d²`, con `d` en [0, 1]
+    la distancia recorrida desde el centro del rango hacia ese extremo.
+
+    Ej. en la valencia: en 0, un impulso negativo vale el 100 %; en −0,5, el
+    75 %; en −0,9, el 19 %. Un impulso en sentido contrario (que aleja del
+    extremo) no se toca. Así un insulto más todavía se nota cerca del fondo,
+    pero el estado no queda clavado en el tope.
+    """
+    if delta == 0:
+        return 0.0
+    center, half = (low + high) / 2, (high - low) / 2
+    reached = max(0.0, (value - center) / half * (1 if delta > 0 else -1))
+    return delta * (1.0 - min(1.0, reached) ** 2)
+
+
+def apply_soft_impulse(
+    state: VAD, valence: float = 0.0, arousal: float = 0.0, dominance: float = 0.0
+) -> VAD:
+    """
+    Suma el impulso de una vivencia (appraisal, alarma de la vía baja) con
+    saturación suave en cada dimensión (D1-79), y después recorta al rango.
+
+    La inyección manual (D1-18) y el acople de los drives usan `apply_impulse`
+    sin amortiguar: la primera es una herramienta de laboratorio que debe
+    llevar el ánimo exactamente adonde se pide; el segundo mueve cantidades mínimas.
+    """
+    if not SOFT_SATURATION:
+        return apply_impulse(state, valence, arousal, dominance)
+    return apply_impulse(
+        state,
+        soften(state.valence, valence, -1.0, 1.0),
+        soften(state.arousal, arousal, 0.0, 1.0),
+        soften(state.dominance, dominance, 0.0, 1.0),
+    )
+
+
 def apply_impulse(
     state: VAD, valence: float = 0.0, arousal: float = 0.0, dominance: float = 0.0
 ) -> VAD:

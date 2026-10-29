@@ -22,6 +22,13 @@ from ebica.perception.appraisal import Appraisal
 APPRAISAL_VALENCE_SCALE = 0.3
 # CONSTANTE: escala del lazo «como si»: Δv = 0,5 · π · (valencia ajena − propia).
 EMPATHY_SCALE = 0.5
+# CONSTANTE: zona muerta del contagio (CP10b, D1-80): con la valencia ajena entre
+# −0,2 y 0,2 no hay emoción que contagiar (un «Hola» neutro). Con 0 se desactiva.
+EMPATHY_DEAD_ZONE = 0.2
+# CONSTANTE: base de la modulación por confianza (D1-80): π × (base + (1 − base)·confianza).
+# Uno se contagia más de quien confía: Ricardo (0,40) ×0,70; Ana (0,20) ×0,60.
+# Con 1,0 se desactiva.
+EMPATHY_TRUST_BASE = 0.5
 # CONSTANTES: impulsos de alerta y dominancia (D1-23). Un ataque activa y
 # quita sensación de control; la angustia ajena también activa.
 AROUSAL_PER_HOSTILITY = 0.25
@@ -95,7 +102,9 @@ def apply_coherence_rules(appraisal: Appraisal) -> tuple[Appraisal, list[str]]:
     return appraisal.model_copy(update=updates), corrections
 
 
-def affect_impulse(appraisal: Appraisal, current: VAD, parameters: DerivedParameters) -> AffectImpulse:
+def affect_impulse(
+    appraisal: Appraisal, current: VAD, parameters: DerivedParameters, trust: float = 1.0
+) -> AffectImpulse:
     """
     Impulso afectivo de un mensaje (§6.2, etapa 3; D1-23).
 
@@ -105,16 +114,19 @@ def affect_impulse(appraisal: Appraisal, current: VAD, parameters: DerivedParame
       con π por A. El último factor (D1-27) evita contagiarse del enojo de
       quien ataca: la empatía baja hacia quien se percibe como antagonista
       (Singer et al., 2006). La tristeza de alguien que sufre sí contagia.
+      Desde CP10b (D1-80): sin contagio si la valencia ajena está en la zona
+      muerta (no hay emoción que contagiar), y π se modula por la confianza en
+      quien habla (`trust`; 1,0 sin personas, que deja la fórmula como antes).
     - Alerta: sube con la hostilidad y con la angustia ajena.
     - Dominancia: baja con la hostilidad.
     """
     congruence = appraisal.goal_congruence
     gain = parameters.g_neg if congruence < 0 else parameters.g_pos
     from_goals = APPRAISAL_VALENCE_SCALE * gain * congruence
-    from_empathy = (
-        EMPATHY_SCALE * parameters.pi_empathy
-        * (appraisal.user_emotion.valence - current.valence)
-        * (1.0 - appraisal.hostility)
+    other = appraisal.user_emotion.valence
+    permeability = parameters.pi_empathy * (EMPATHY_TRUST_BASE + (1.0 - EMPATHY_TRUST_BASE) * trust)
+    from_empathy = 0.0 if abs(other) < EMPATHY_DEAD_ZONE else (
+        EMPATHY_SCALE * permeability * (other - current.valence) * (1.0 - appraisal.hostility)
     )
     return AffectImpulse(
         valence=from_goals + from_empathy,

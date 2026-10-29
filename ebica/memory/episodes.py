@@ -41,6 +41,10 @@ if TYPE_CHECKING:
 # CONSTANTE: largo máximo de la respuesta dentro del texto del episodio (D1-35).
 # El recuerdo guarda lo esencial; la huella guarda la respuesta completa.
 RESPONSE_MAX_CHARS = 600
+# CONSTANTE: largo máximo del contexto guardado con un compromiso (CP10 C,
+# decisión del usuario): el comienzo del mensaje en que se prometió, porque el
+# appraisal puede resumir la promesa demasiado («te cuento», sin decir qué).
+COMMITMENT_CONTEXT_MAX_CHARS = 120
 # CONSTANTE: máximo de temas enlazados por episodio. El appraisal suele dar
 # 1–3; el tope evita que una respuesta desbordada llene el grafo de temas.
 MAX_TOPICS_PER_EPISODE = 5
@@ -308,7 +312,8 @@ FOREACH (person IN CASE WHEN $person IS NULL THEN [] ELSE [$person] END |
     CREATE (t)-[:SPOKEN_BY]->(p))
 FOREACH (c IN $commitments |
     MERGE (cm:Commitment {{entity_id: $entity_id, id: c.id}})
-    ON CREATE SET cm.text = c.text, cm.key = c.key, cm.status = 'open', cm.ts = $ts, cm.due = null
+    ON CREATE SET cm.text = c.text, cm.key = c.key, cm.context = c.context, cm.status = 'open',
+                  cm.ts = $ts, cm.due = null
     MERGE (e)-[:ABOUT]->(cm)
     FOREACH (pid IN CASE WHEN $person IS NULL THEN [] ELSE [$person.id] END |
         MERGE (owner:Person {{entity_id: $entity_id, id: pid}})
@@ -467,10 +472,13 @@ class MemoryWriter:
         importance = episode_importance(appraisal)
         person_id = person.id if person is not None else None
         commitments = []
+        context = " ".join(user_text.split())
+        if len(context) > COMMITMENT_CONTEXT_MAX_CHARS:
+            context = context[:COMMITMENT_CONTEXT_MAX_CHARS].rstrip() + "…"
         for text_ in appraisal.commitments:
             if commitment_key(text_) and commitment_id(person_id, text_) not in {c["id"] for c in commitments}:
                 commitments.append({"id": commitment_id(person_id, text_), "text": text_.strip(),
-                                    "key": commitment_key(text_)})
+                                    "key": commitment_key(text_), "context": context})
         started = time.perf_counter()
         rows = await self.graph.execute(
             _WRITE_TURN, entity_id=entity_id, episode_id=episode_id, trace_id=_trace_id(episode_id),

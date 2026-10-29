@@ -95,6 +95,9 @@ EXPRESSION_HEADER = "Cómo expresarme:"
 # soltura; con poca sensación de control, con cautela.
 EXPRESSION_THREAT_AROUSAL, EXPRESSION_THREAT_VALENCE = 0.6, -0.1
 EXPRESSION_GOOD_VALENCE, EXPRESSION_LOW_DOMINANCE = 0.3, 0.25
+# CONSTANTES: notas de la sección 7 que agrega `repetition_watch` (CP10, D1-72).
+USER_REPEATS_NOTE = "Ya hablamos de esto; puedo decirlo o cambiar de tema."
+ENTITY_REPEATS_NOTE = "No repito lo que ya dije."
 # Encabezado de la sección 6 (CP8).
 PARTNER_HEADER = "Cómo veo a esta persona:"
 # CONSTANTES: cuánto conoce a la persona, por número de intercambios
@@ -236,6 +239,17 @@ def memory_line(item: ScoredEpisode, now: datetime) -> str:
         text = text[:DIALOGUE_MEMORY_MAX_CHARS].rstrip() + "…"
     tone = describe_tone(candidate.valence)
     return f"- {describe_when(candidate.ts, now).capitalize()}: {text}" + (f" ({tone})" if tone else "")
+
+
+def commitment_line(text: str, ts: datetime, now: datetime, context: str | None = None) -> str:
+    """
+    Una promesa de quien habla, para la sección 6 (CP10, D1-74): «Me prometió:
+    «te cuento» (ayer), cuando me dijo: «Mañana tengo una entrevista…».» El
+    contexto aclara una promesa que el appraisal resumió demasiado (decisión
+    del usuario en CP10 C). La WorkingMemory la mide con este texto.
+    """
+    line = f"Me prometió: «{text}» ({describe_when(ts, now)})"
+    return line + (f", cuando me dijo: «{context}»." if context else ".")
 
 
 def fact_line(fact: RetrievedFact) -> str:

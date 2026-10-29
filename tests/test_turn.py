@@ -524,7 +524,8 @@ async def test_normal_turn_retrieves_before_answering(tmp_path):
     turn = by_type["turn.completed"][0]
 
     [call] = retriever.calls
-    assert memory.embedder.calls == [(["hola 0"], "query")]
+    # El mensaje para buscar recuerdos y, después de responder, la respuesta para `repetition_watch` (CP10).
+    assert memory.embedder.calls == [(["hola 0"], "query"), (["Hola"], "passage")]
     assert call["topics"] == ["perro"] and call["since"] is None
     assert call["k"] == orchestrator.parameters.k_retrieval
     assert call["affect"] == orchestrator.state.affect  # el ánimo ya actualizado por el appraisal

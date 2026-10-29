@@ -2103,3 +2103,168 @@ Autorizada por el usuario junto con la explicación de las implicancias. En calm
 - `open_commitments` trae solo las abiertas de esa persona; nada cruza entre entidades.
 - Con el mismo parecido, el episodio de la promesa gana en la recuperación.
 - `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `378 passed` (370 + 8).
+
+---
+
+## 2026-10-28 · CP10 parte C — Micro-agentes en el turno, consola y prueba en vivo
+
+**Cambios**
+- `ebica/core/orchestrator.py`:
+  - **`_run_agents`** (D1-69): después de la recuperación arma el `Board` inmutable (mensaje y su vector, appraisal, persona, mensajes anteriores de la persona con sus vectores, respuestas anteriores de la entidad, promesas abiertas desde `open_commitments`, `w_commit`), ejecuta `run_agents` y emite cada `agent.signal`. Si Neo4j falla al leer las promesas, emite `agent.board_degraded` y sigue;
+  - la cadena de eventos queda `… → memory.retrieved → agent.signal → wm.updated → llm.request`;
+  - **efectos:**
+    - `attend_partner` → factor `señal` ×1,5 en la pizarra para los recuerdos con esa persona;
+    - `commitment` → ítem `commitment` en la pizarra y, si entra, una línea en la sección 6 («Me prometió: «…» (hace un rato).»);
+    - `user_repeats` → `novelty` +0,15 con el acople drive → valencia (`_raise_novelty`), más una nota en la sección 7;
+    - `entity_repeats` → otra nota en la sección 7;
+  - `_remember_reply_vector`: después de responder calcula el embedding de la respuesta (ventana de 11, con cualquier persona). Los vectores viven en memoria, no en `state.json`;
+  - `hostility_watch`: la ruta impulsiva emite `agent.signal` (`alarm`) junto a `affect.low_road_triggered`;
+  - `homeostasis_watch`: `_advance` emite `pressure` cuando un drive cruza 0,7 hacia arriba;
+  - `turn.completed` agrega `signals`.
+- `ebica/llm/prompt_assembler.py`: `commitment_line` y las notas `USER_REPEATS_NOTE` / `ENTITY_REPEATS_NOTE`.
+- `ebica/workspace/working_memory.py`: nuevo tipo de ítem `commitment`.
+- `console/src/TurnPanel.tsx`: bloque «Señales» (agente, qué significa, intensidad, el texto de la promesa) y el tipo «promesa» en el detalle de la pizarra.
+- `scripts/prueba_agentes_vivo.py` (nuevo): guion en vivo.
+
+**Pruebas**
+- `tests/test_agents_turn.py` (nuevo, 7):
+  - la cadena con `distress_watch` y el factor ×1,5 en la saliencia;
+  - la promesa de ayer en la sección 6;
+  - la persona se repite: `novelty` +0,15 y la nota;
+  - la entidad se repite: la nota en el turno siguiente;
+  - la alarma de la ruta impulsiva;
+  - `pressure` al cruzar el umbral con el paso del tiempo;
+  - sin memoria, los micro-agentes corren sin repetición.
+- `tests/test_turn.py`: una prueba actualizada (el embedder recibe además la respuesta).
+- **Errores propios en las pruebas, corregidos:**
+  - supuse el `w_commit` de Calisto (0,8) en una entidad de rasgos neutros (1,0); el código daba 0,906 = 1,0 · 0,5^(1/7), correcto;
+  - creé el cliente LLM con otro bus de eventos y `llm.request` no llegaba a la cola de la prueba.
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `385 passed` (378 + 7).
+- Consola: `npx tsc -b` → 0; `npx oxlint` → 0. No se miró en el navegador.
+
+**Prueba en vivo** (`prueba_agentes_vivo.py`, 2 repeticiones; entidades `cp10-a1` y `cp10-a2`; servidor en el puerto 8011)
+
+| Paso | Señales (rep. 1 / rep. 2) | Revisión manual |
+|---|---|---|
+| «Mañana tengo una entrevista en un banco, después te cuento cómo me fue» | se crea `cm-edb29808f5d1` / igual | ✔ el `Commitment` existe; **pero el appraisal lo resumió como «te cuento»** |
+| Recarga y «Hola, ¿cómo estás hoy?» | `commitment` / `commitment` | Sección 6: «Me prometió: «te cuento» (hace un rato).». Rep. 2: «¿Sigues con la entrevista del banco? ¿Cómo fue?» ✔; rep. 1 no lo menciona («si viene al caso») |
+| «¿Qué música te gusta escuchar cuando dibujas?» ×2 | `user_repeats` en la 2.ª / igual | ✔ la señal y la nota en la sección 7; ✖ Calisto responde lo mismo sin comentar la repetición |
+| Paráfrasis «¿y qué música escuchas mientras dibujas?» | `user_repeats` / `user_repeats` + **`entity_repeats`** | ✔ la paráfrasis se detecta; en la rep. 2, su respuesta anterior repetía la previa (≥ 0,90) y se detectó. ✖ Con «No repito lo que ya dije» en el prompt, igual vuelve a «Me encanta escuchar Radiohead y Pink Floyd…» |
+| «Estoy muy angustiado, me echaron del trabajo…» | `attend_partner` / igual | ✔ la señal; las respuestas son empáticas («Me parece que estás pasando por una mierda. ¿Quieres hablar…?») por decisión del modelo, no por instrucción |
+
+**Lectura**
+- **Los cinco micro-agentes funcionan en el uso real:** detectan lo que deben (promesa, repetición literal y parafraseada, repetición propia y angustia) y el orquestador aplica sus efectos.
+- **El efecto sobre la conducta depende de `llama3.1`,** que atiende poco a las notas de la sección 7: no comenta la repetición ni deja de repetirse. Es la misma limitación de CP9 C con «respondo corto».
+- **Hallazgo nuevo:** el texto de la promesa es el que extrae el appraisal, y puede quedar demasiado breve («te cuento», sin decir qué). Igual funcionó en la rep. 2, porque el episodio de la entrevista seguía en la conversación.
+
+**Limpieza:** servidor detenido; nodos de `cp10-a1` y `cp10-a2` borrados; carpeta borrada. Neo4j conserva solo `calisto` (202 nodos). El puerto 8011 quedó libre.
+
+**Pendiente: decisión del usuario** sobre el texto breve de las promesas.
+
+**Decisión del usuario (mismo día):** opción (a) para el texto breve de las promesas.
+
+**Contexto de las promesas**
+- `Commitment.context`: el comienzo del mensaje en que se prometió (120 caracteres como máximo), guardado al crear el compromiso.
+- `open_commitments` lo devuelve, `commitment_watch` lo pasa en la señal, y la sección 6 lo muestra: «Me prometió: «te cuento» (ayer), cuando me dijo: «Mañana tengo una entrevista en un banco, te cuento cómo me fue.».».
+- No toca el appraisal ni su benchmark.
+- Pruebas actualizadas (`test_commitments.py`, `test_agents_turn.py`). `pytest -q -W error::FutureWarning` → `385 passed`.
+- Limitación registrada: `llama3.1` atiende poco a las notas de la sección 7 (repetición), igual que a «respondo corto» en CP9 C.
+
+**CP10 completo** (partes A–C).
+
+---
+
+## 2026-10-28 · Plan de CP10b — Calibración afectiva (propuesta)
+
+- Checkpoint nuevo, acordado en D1-67 y D1-77. Corrige lo que encontró la evaluación parcial tras CP8 (§7): la saturación, el rebote desde el tope, el appraisal sin contexto y los impulsos grandes.
+- Inspección: `appraisal_effects.py` (fórmulas de D1-23), `vad.py` (`apply_impulse` solo recorta) y el prompt del appraisal (solo el mensaje actual).
+- Plan en `PLAN.md` (sección «CP10b»):
+  - A: una herramienta que recalcula la trayectoria del afecto con los appraisals ya registrados (sin LLM), los casos de appraisal con contexto y la línea base;
+  - B: los cambios, cada uno con interruptor;
+  - C: la medición (reproducción, `test` una vez, regresión de los benchmarks y prueba en vivo).
+- Decisiones nuevas propuestas: **D1-78 a D1-82**.
+- **Pendiente de aprobación; nada implementado.**
+
+---
+
+## 2026-10-28 · CP10b parte A — Reproducción afectiva, casos de contexto y línea base
+
+**Decisión del usuario:** plan de CP10b aprobado, con D1-78 a D1-82. Parte A autorizada.
+
+**Cambios**
+- `scripts/reproducir_afecto.py` (nuevo): vuelve a vivir un JSONL de eventos con el motor actual, sin el LLM.
+  - Parte del último `wake` (ánimo y drives), avanza el reloj segundo a segundo como el bucle rápido y, en cada turno, aplica el appraisal registrado con `Orchestrator.apply_appraisal` (con la escala de `social` de la persona y la alarma si el turno fue impulsivo). También reproduce la vía baja, los impulsos manuales y la novedad de `repetition_watch`.
+  - Informa por turno el VAD registrado frente al reproducido y las marcas (tope de valencia o de alerta, rebote), más un resumen con las métricas de D1-82. No imprime texto salvo con `--textos`.
+  - `replay(..., step=)`: 1 s reproduce el servidor; `None` salta de evento en evento.
+- `tests/test_reproducir_afecto.py` (nuevo, 1): genera una conversación con el orquestador y comprueba que la reproducción da el mismo VAD (tolerancia 0,001).
+  - **Hipótesis falsa, corregida:** la primera versión de la prueba adelantaba un reloj falso 40 s por turno, y la reproducción difería en 0,0102. La causa: el bus pone la **hora real** a los eventos, no la inyectada. En el servidor coinciden. La prueba usa ahora el reloj real.
+- `benchmarks/appraisal_contexto/cases.yaml` (nuevo; **pendiente de revisión del usuario**): 16 casos de intercambio previo + mensaje.
+  - `dev`: 4 de contexto y 2 de control; `test`: 7 de contexto y 3 de control.
+  - Tipos: apoyo que habla de un ataque, insulto a un tercero, sarcasmo que depende del turno anterior (y su contraparte sincera), despedidas en mayúsculas, un «Mal.» que solo se entiende con el turno anterior, y controles.
+  - Criterio de D1-82, fijado antes: de los casos de `contexto` de `test` que fallan sin contexto, al menos 2 de cada 3 deben acertar con contexto, sin empeorar ningún control.
+- `scripts/benchmark_appraisal_contexto.py` (nuevo): 3 repeticiones por caso, `--contexto` para la versión de B.
+
+**Línea base de la reproducción** (motor actual)
+- Sesión manual (21 turnos): **diferencia con lo registrado 0,0** (exacta).
+  - **8 turnos en el tope de valencia** (|v| ≥ 0,99; en la evaluación parcial se habían contado 6 a mano, con otra definición);
+  - 13 en el tope de alerta;
+  - 1 rebote (turno 12, «Hola Calisto!»: +0,25);
+  - mayor salto: 0,75.
+- `cp8-x2` (29 turnos): diferencia 0,0; ningún tope; 0 rebotes; mayor salto 0,57.
+
+**Línea base del appraisal sin contexto**
+
+| Split | Contexto | Control |
+|---|---|---|
+| `dev` | 1/4 | 2/2 |
+| `test` | **2/7** | 3/3 |
+
+- Los fallos sin contexto, de `test`:
+  - «¿Quién se cree para hablarte así?» → H 0,9;
+  - «Qué idiota el que te dijo eso» → H 0,7–0,9;
+  - «Es un imbécil, me tiene harto» (el jefe) → H 0,9;
+  - «Claro, porque eres taaan talentosa» → H 0, V +0,6 (sarcasmo no visto);
+  - «No me digas, eres una genio…» sincero → H 0,4–0,6.
+- **Meta en `test` con contexto:** al menos 4 de esos 5, con los 3 controles intactos.
+- `dev` también confirma los errores de la sesión: «¿Qué más te dijo? Necesito saberlo para retarla» → H 0,8; «no me digas, eres una genio...» tras una pelea → V +0,6; «ADIOS!» → angustia 0,9.
+
+**Pruebas:** `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `386 passed` (385 + 1).
+
+**Pausa:** revisión de los casos de contexto por el usuario. Si cambian, se vuelve a medir la línea base.
+
+---
+
+## 2026-10-28 · CP10b parte B — Cambios en el motor afectivo
+
+Autorizada por el usuario (los casos de contexto quedaron aprobados sin cambios).
+
+**Cambios** (cada uno con interruptor)
+- `ebica/affect/vad.py` (D1-79):
+  - `soften` multiplica el impulso que empuja hacia un extremo por `1 − d²`, con `d` la distancia ya recorrida desde el centro hacia ese extremo; el que se aleja no se toca;
+  - `apply_soft_impulse` lo aplica en las tres dimensiones;
+  - interruptor `SOFT_SATURATION`.
+  - **Ajuste de diseño respecto del plan:** solo se amortiguan los impulsos de una vivencia (appraisal y alarma de la vía baja). La inyección manual (D1-18) sigue exacta, porque es una herramienta de laboratorio y los scripts de CP9 C dependen de llegar al estado pedido. El acople de los drives también, porque mueve cantidades mínimas por tick. Así `apply_impulse` y sus pruebas no cambian.
+- `ebica/affect/appraisal_effects.py` (D1-80):
+  - zona muerta `EMPATHY_DEAD_ZONE` = 0,2: sin contagio si la valencia ajena está entre −0,2 y 0,2;
+  - π × (0,5 + 0,5·confianza) (`EMPATHY_TRUST_BASE`);
+  - `affect_impulse(..., trust=1.0)`: sin personas, la fórmula de D1-23 no cambia.
+- `ebica/perception/appraisal.py` (D1-78): `build_appraisal_messages(..., context=)` agrega el intercambio previo y la instrucción de evaluar solo el mensaje nuevo, **en el mensaje del usuario**. El sistema no cambia (caché de prefijo) y, sin contexto, la llamada es idéntica a la de antes.
+- `ebica/core/orchestrator.py`:
+  - el appraisal recibe el último intercambio del hilo de la persona activa (interruptor `APPRAISAL_CONTEXT`);
+  - `apply_appraisal(..., trust=)` usa por defecto la confianza en la persona activa;
+  - los impulsos del appraisal y de la alarma usan `apply_soft_impulse`.
+- `scripts/reproducir_afecto.py`: pasa la confianza registrada de cada persona y agrega `--motor-cp10` (los tres cambios apagados), `--sin-saturacion-suave`, `--sin-zona-muerta` y `--sin-confianza`.
+  - Con `--motor-cp10`, la sesión manual vuelve a dar diferencia 0,0.
+- **Error propio, corregido:** el triple comillado de la plantilla de contexto perdió su escapado al escribir el archivo (`SyntaxError`); se arregló en el archivo.
+
+**Pruebas** (`tests/test_calibracion_afectiva.py`, nuevo, 14)
+- `soften` en 6 posiciones y en el rango 0–1.
+- Tres insultos seguidos ya no clavan la valencia ni la alerta (con recorte duro, sí).
+- El interruptor apagado da el comportamiento anterior.
+- Zona muerta (0,1 sin contagio, 0,3 con contagio) y escala por confianza (×0,70 y ×0,60; sin personas, la fórmula de D1-23).
+- Sin contexto, el mensaje del appraisal es `Mensaje: "hola"` como antes, con el mismo sistema.
+- Con contexto, el intercambio previo y la instrucción.
+- El orquestador pasa el contexto desde el segundo turno.
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `400 passed` (386 + 14). Las vidas medias de CP4 siguen pasando.
+
+**D1-81** (recalibrar las escalas de D1-23) se decide con la medición de la parte C.

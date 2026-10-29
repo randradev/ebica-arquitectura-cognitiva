@@ -23,6 +23,8 @@ class OpenCommitment:
     id: str
     text: str
     ts: datetime
+    # El comienzo del mensaje en que se prometió (puede faltar en datos viejos).
+    context: str | None = None
 
 
 @dataclass(frozen=True)

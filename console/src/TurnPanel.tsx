@@ -39,6 +39,8 @@ interface TurnPayload {
   // Pizarra (CP9): presupuesto, lo usado y lo desalojado; null en un turno
   // impulsivo (no usa la pizarra). Ausente en los turnos anteriores a CP9.
   workspace?: Workspace | null
+  // Señales de los micro-agentes del turno (CP10). Ausente en los turnos anteriores a CP10.
+  signals?: AgentSignal[]
   // Memoria (CP6): lo escrito, el error, o null si el servidor corre sin memoria.
   // Ausente en los turnos anteriores a CP6.
   memory?: WrittenMemory | { error: string } | null
@@ -114,8 +116,43 @@ function RecallBlock({ retrieval, impulsive }: { retrieval: TurnPayload['retriev
   )
 }
 
+interface AgentSignal {
+  agent: string
+  kind: string
+  strength: number
+  target: string | null
+  data: Record<string, unknown>
+}
+
+// Qué significa cada tipo de señal, en palabras, para la consola.
+const SIGNAL_KIND: Record<string, string> = {
+  alarm: 'alarma (vía baja)',
+  attend_partner: 'angustia ajena: más atención a sus recuerdos',
+  commitment: 'promesa abierta',
+  user_repeats: 'la persona se repite',
+  entity_repeats: 'la entidad se repitió',
+  pressure: 'drive sobre su umbral',
+}
+
+/** Bloque «Señales» (CP10, §5.10): qué detectaron los micro-agentes en este turno. */
+function SignalsBlock({ signals }: { signals: TurnPayload['signals'] }) {
+  if (signals === undefined) return null
+  return (
+    <div>
+      <h3>Señales</h3>
+      {signals.length === 0 && <p className="muted">ningún micro-agente se activó</p>}
+      {signals.map((signal, index) => (
+        <p key={index} title={JSON.stringify(signal.data)}>
+          {signal.agent}: {SIGNAL_KIND[signal.kind] ?? signal.kind} · {signal.strength.toFixed(2)}
+          {signal.kind === 'commitment' && typeof signal.data.text === 'string' && ` · «${signal.data.text}»`}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 interface WorkspaceItem {
-  kind: 'turn' | 'memory' | 'fact'
+  kind: 'turn' | 'memory' | 'fact' | 'commitment'
   key: string
   tokens: number
   salience: number
@@ -129,7 +166,9 @@ interface Workspace {
 }
 
 // Nombres de los tipos de ítem de la pizarra, para la consola.
-const ITEM_KIND: Record<WorkspaceItem['kind'], string> = { turn: 'intercambio', memory: 'recuerdo', fact: 'hecho' }
+const ITEM_KIND: Record<WorkspaceItem['kind'], string> = {
+  turn: 'intercambio', memory: 'recuerdo', fact: 'hecho', commitment: 'promesa',
+}
 
 /**
  * Línea «Pizarra» (CP9, §5.6): cuánto del presupuesto de tokens se usó y qué
@@ -252,6 +291,7 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
           </p>
         </div>
         <RecallBlock retrieval={turn.retrieval} impulsive={turn.impulsive} />
+        <SignalsBlock signals={turn.signals} />
         <div>
           <h3>Pizarra</h3>
           {turn.workspace ? <WorkspaceLine workspace={turn.workspace} /> : <p className="muted">sin pizarra (turno impulsivo)</p>}

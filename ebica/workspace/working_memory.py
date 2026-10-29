@@ -41,7 +41,8 @@ G_AFFECTIVE = 1.0
 # penúltimo vale 0,9, el anterior 0,81… Bajo presión se van primero los más viejos.
 TURN_RELEVANCE_DECAY = 0.9
 
-ItemKind = Literal["turn", "memory", "fact"]
+# `commitment`: una promesa de quien habla, señalada por `commitment_watch` (CP10).
+ItemKind = Literal["turn", "memory", "fact", "commitment"]
 
 
 def workspace_budget(arousal: float, base: int = BASE_BUDGET_TOKENS) -> int:

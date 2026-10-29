@@ -20,7 +20,9 @@ orquestador mantiene a la persona activa y su modelo (§5.9), y el turno lo
 percibe (`partner_now`), lo usa en el prompt (sección 6) y lo actualiza.
 Desde CP9, antes de responder, la WorkingMemory (§5.6) decide qué
 intercambios, recuerdos y hechos entran al prompt, con un presupuesto que la
-alerta reduce. La máquina de modos y el reloj simulado llegan en Fase 2. El reloj solo es
+alerta reduce. Desde CP10, los micro-agentes (§5.10) miran una foto del turno
+y emiten señales; el orquestador aplica sus efectos (pizarra, drives y
+secciones 6–7). La máquina de modos y el reloj simulado llegan en Fase 2. El reloj solo es
 inyectable (`now`), para probar con tiempo falso.
 """
 
@@ -42,7 +44,7 @@ from ebica.affect.appraisal_effects import (
 from ebica.affect.drives import DriveDynamics, advance_drives, crossed_thresholds, valence_coupling
 from ebica.affect.low_road import ALARM_AROUSAL, LowRoadResult
 from ebica.affect.low_road import evaluate as evaluate_low_road
-from ebica.affect.vad import VAD, AffectDynamics, apply_impulse, decay
+from ebica.affect.vad import VAD, AffectDynamics, apply_impulse, apply_soft_impulse, decay
 from ebica.core.events import Event, EventBus
 from ebica.core.gpu_queue import GpuPriority, GpuQueue
 from ebica.core.state import ConversationTurn, EntityState, PartnerState
@@ -50,9 +52,12 @@ from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
 from ebica.llm.client import PRESETS, LLMClient, LLMError, LLMResult
 from ebica.llm.prompt_assembler import (
+    ENTITY_REPEATS_NOTE,
+    USER_REPEATS_NOTE,
     build_dialogue_messages,
     build_impulsive_messages,
     build_memory_sections,
+    commitment_line,
     describe_expression,
     describe_partner,
     fact_line,
@@ -72,6 +77,15 @@ from ebica.perception.appraisal import (
 )
 from ebica.llm.tokens import estimate_tokens
 from ebica.social.partner import PartnerModel, PartnerNow, update_partner_model
+from ebica.workspace.agents import (
+    Board,
+    OpenCommitment,
+    Signal,
+    homeostasis_watch,
+    hostility_watch,
+    repetition_watch,
+    run_agents,
+)
 from ebica.workspace.working_memory import (
     Selection,
     WorkspaceItem,
@@ -89,6 +103,14 @@ APPRAISAL_SCHEMA = appraisal_json_schema()
 # en silencio un prompt más largo (medido en CP1): si el prompt estimado supera
 # este valor menos el `max_tokens` del preset, se emite `wm.overflow`.
 CONTEXT_TOKENS = 8192
+
+# CONSTANTE: mensajes anteriores de cada persona (con su embedding) que mira
+# `repetition_watch` (el mismo tamaño que el hilo de la conversación reciente).
+USER_HISTORY = 6
+
+# CONSTANTE: interruptor del contexto en el appraisal (CP10b, D1-78): el último
+# intercambio con la persona activa. Con False, el appraisal ve solo el mensaje.
+APPRAISAL_CONTEXT = True
 
 # CONSTANTE: intervalo del bucle rápido (§6.1, ≈1 Hz).
 TICK_SECONDS = 1.0
@@ -152,6 +174,13 @@ class Orchestrator:
         # la entidad no tiene `primary` ni se eligió a nadie: el turno funciona
         # igual, sin sección 6 ni nombre en los recuerdos.
         self.partner: PartnerModel | None = None
+        # Embeddings para `repetition_watch` (CP10). Viven en memoria, no en
+        # `state.json`: tras un reinicio, la detección empieza de cero.
+        # Mensajes de cada persona (texto, vector) y respuestas de la entidad
+        # con cualquier persona, de la más vieja a la más reciente.
+        self._user_vectors: dict[str | None, list[tuple[str, tuple[float, ...]]]] = {}
+        self._entity_vectors: list[tuple[float, ...]] = []
+        self._query_vector: list[float] | None = None
         # Los hechos esenciales ya van en «Quién soy»: no se recuperan (D1-46).
         self.core_fact_ids = [fact.id for fact in entity.config.seed_biography.core_facts]
         self._save_state = save_state
@@ -279,6 +308,13 @@ class Orchestrator:
                 self.entity_id, "drive.threshold_crossed",
                 {"drive": name, "direction": direction, "level": after[name], "awake": awake},
             )
+        # `homeostasis_watch` (D1-75): solo la señal; sus consumidores llegan en Fase 2.
+        for signal in homeostasis_watch.observe(Board(now=self.now(), drives_before=before, drives=after)):
+            self._emit_signal(signal)
+
+    def _emit_signal(self, signal: Signal, cause_id: str | None = None) -> Event:
+        """Publica una señal de un micro-agente como `agent.signal` (§5.10)."""
+        return self.bus.emit(self.entity_id, "agent.signal", signal.as_dict(), cause_id=cause_id)
 
     # ------------------------------------------------------------ reporte
 
@@ -432,7 +468,11 @@ class Orchestrator:
             low_road = evaluate_low_road(text, self.parameters.theta_low_road)
             low_road_ms = (time.perf_counter() - started) * 1000
             # Cada ruta deja aquí lo que `turn.completed` necesita.
-            summary: dict = {}
+            summary: dict = {"signals": []}
+            # `hostility_watch` (D1-70) es la vía baja: su señal acompaña a la ruta impulsiva.
+            for signal in hostility_watch.signal_for(low_road):
+                self._emit_signal(signal, perception.id)
+                summary["signals"].append(signal.as_dict())
             if low_road.triggered:
                 turn = self._impulsive_turn(text, perception.id, low_road, summary)
             else:
@@ -450,6 +490,7 @@ class Orchestrator:
             memory_started = time.perf_counter()
             memory_event = await self._write_memory(text, result.text, low_road.triggered, summary, updated)
             memory_s = time.perf_counter() - memory_started
+            await self._remember_reply_vector(result.text)
             completed_cause = memory_event.id if memory_event else summary["completed_cause_id"]
             tom_event = None
             if updated is not None:
@@ -476,6 +517,8 @@ class Orchestrator:
                     "retrieval": summary.get("retrieval"),
                     # Lo que entró a la pizarra (CP9); None en la ruta impulsiva, que no la usa.
                     "workspace": summary.get("workspace"),
+                    # Señales de los micro-agentes del turno (CP10).
+                    "signals": summary["signals"],
                     # None si la memoria está desactivada; si no, lo escrito o el error.
                     "memory": memory_event.payload if memory_event else None,
                     # Quién habló y cómo se le percibió (CP8); None sin personas.
@@ -505,6 +548,7 @@ class Orchestrator:
         retrasa el primer token.
         """
         retrieving = self.retriever is not None and self.memory is not None
+        self._query_vector = None
         query = asyncio.create_task(self._embed_query(text)) if retrieving else None
         try:
             appraisal_started = time.perf_counter()
@@ -524,13 +568,23 @@ class Orchestrator:
 
         state = self.state
         temperature = dialogue_temperature(state.affect)
+        signals, signals_cause = await self._run_agents(
+            text, appraisal, cause_id=retrieval_event.id if retrieval_event else affect_event.id
+        )
+        summary["signals"].extend(signal.as_dict() for signal in signals)
+        recent = self._partner_turns()
+        selection, workspace_event = self._update_workspace(recent, retrieval, signals_cause, signals)
         partner = (
             describe_partner(self.partner, PartnerNow.from_appraisal(appraisal), self.now())
             if self.partner else ""
         )
-        recent = self._partner_turns()
-        selection, workspace_event = self._update_workspace(
-            recent, retrieval, cause_id=retrieval_event.id if retrieval_event else affect_event.id
+        # Las promesas que entraron a la pizarra van en la sección 6 (D1-74).
+        promises = [item.text for item in selection.of_kind("commitment")]
+        if partner and promises:
+            partner += "\n" + "\n".join(promises)
+        notes = {"user_repeats": USER_REPEATS_NOTE, "entity_repeats": ENTITY_REPEATS_NOTE}
+        expression = " ".join(
+            [describe_expression(state.affect)] + [notes[s.kind] for s in signals if s.kind in notes]
         )
         summary["workspace"] = {
             "budget": selection.budget, "used": selection.used, "kept": len(selection.kept),
@@ -546,7 +600,7 @@ class Orchestrator:
         messages = build_dialogue_messages(
             self.entity.config, text, state.affect, state.drives, turns,
             memories=build_memory_sections(kept_retrieval, self.now()), partner=partner,
-            expression=describe_expression(state.affect),
+            expression=expression,
         )
         self._check_context(messages, "dialogue", workspace_event.id)
         result = LLMResult()
@@ -563,19 +617,93 @@ class Orchestrator:
             completed_cause_id=result.response_event_id,
         )
 
+    async def _run_agents(self, text: str, appraisal: Appraisal, cause_id: str) -> tuple[list[Signal], str]:
+        """
+        Ejecuta los micro-agentes del turno sobre una foto inmutable (§5.10; D1-69).
+
+        La foto lleva el mensaje y su embedding, el appraisal, los mensajes
+        anteriores de la persona y las respuestas anteriores de la entidad (para
+        `repetition_watch`) y las promesas abiertas de la persona (para
+        `commitment_watch`). Emite cada señal como `agent.signal` y aplica el
+        efecto sobre los drives (la persona que se repite aburre: `novelty` sube).
+        Los efectos sobre la pizarra y el prompt los aplica quien arma el turno.
+        Devuelve las señales y el id del evento que sigue en la cadena.
+        """
+        partner_id = self.partner.id if self.partner else None
+        commitments: tuple[OpenCommitment, ...] = ()
+        if self.people is not None and partner_id is not None:
+            try:
+                rows = await self.people.open_commitments(self.entity_id, partner_id)
+                commitments = tuple(
+                    OpenCommitment(row["id"], row["text"], row["ts"], row.get("context")) for row in rows
+                )
+            except Exception as error:  # noqa: BLE001 — sin Neo4j, el turno sigue sin promesas
+                self.bus.emit(self.entity_id, "agent.board_degraded",
+                              {"missing": "commitments", "error": f"{type(error).__name__}: {error}"},
+                              cause_id=cause_id)
+        query = tuple(self._query_vector) if self._query_vector is not None else None
+        board = Board(
+            now=self.now(), text=text, query_vector=query, appraisal=appraisal, partner_id=partner_id,
+            user_history=tuple(self._user_vectors.get(partner_id, [])),
+            entity_replies=tuple(self._entity_vectors), commitments=commitments,
+            w_commit=self.parameters.w_commit,
+        )
+        signals = run_agents(board)
+        last = cause_id
+        for signal in signals:
+            last = self._emit_signal(signal, cause_id).id
+            if signal.kind == "user_repeats":
+                self._raise_novelty(signal.data["novelty"], last)
+        # El mensaje entra a la historia después de compararlo, para no compararlo consigo mismo.
+        if query is not None:
+            history = [*self._user_vectors.get(partner_id, []), (text, query)]
+            self._user_vectors[partner_id] = history[-USER_HISTORY:]
+        return signals, last
+
+    def _raise_novelty(self, amount: float, cause_id: str) -> None:
+        """
+        La persona se repite: sube la necesidad de novedad (D1-72), con el acople
+        drive → valencia de CP4 (un poco de aburrimiento baja el ánimo).
+        """
+        self.tick()
+        before = self.state.drives
+        after = dict(before, novelty=min(1.0, before["novelty"] + amount))
+        self.state.drives = after
+        self.state.affect = apply_impulse(self.state.affect, valence=valence_coupling(before, after))
+        self.bus.emit(self.entity_id, "drive.updated", dict(after), cause_id=cause_id)
+
+    async def _remember_reply_vector(self, reply: str) -> None:
+        """
+        Guarda el embedding de la respuesta para `repetition_watch` (D1-72), con
+        cualquier persona. Corre después de responder; si el embedder falla, solo
+        se pierde esta comparación.
+        """
+        if self.memory is None or not reply.strip():
+            return
+        try:
+            [vector] = await self.memory.embedder.embed([reply], "passage")
+        except Exception:  # noqa: BLE001 — no debe romper el turno, que ya terminó
+            return
+        self._entity_vectors = [*self._entity_vectors, tuple(vector)][-(repetition_watch.ENTITY_WINDOW + 1):]
+
     def _update_workspace(
-        self, recent: list[ConversationTurn], retrieval: RetrievalResult | None, cause_id: str
+        self, recent: list[ConversationTurn], retrieval: RetrievalResult | None, cause_id: str,
+        signals: list[Signal] | tuple = (),
     ) -> tuple[Selection, Event]:
         """
         Arma la pizarra del turno y elige qué entra (§5.6; CP9).
 
         Compiten los intercambios del hilo salvo el último (relevancia según su
-        antigüedad), los recuerdos (su puntaje de §7.3 y su valencia) y los
-        hechos (su parecido); cada uno se mide con el texto que iría al prompt.
-        El presupuesto depende de la alerta (D1-62). Emite `wm.updated` y, si
-        algo no cupo, `wm.evicted`; devuelve la selección y el primer evento.
+        antigüedad), los recuerdos (su puntaje de §7.3 y su valencia), los
+        hechos (su parecido) y, desde CP10, las promesas de quien habla (su
+        intensidad, D1-74); cada uno se mide con el texto que iría al prompt.
+        `distress_watch` multiplica la saliencia de los recuerdos con la persona
+        que sufre (el factor `señal` de §5.6, D1-71). El presupuesto depende de
+        la alerta (D1-62). Emite `wm.updated` y, si algo no cupo, `wm.evicted`;
+        devuelve la selección y el primer evento.
         """
         now = self.now()
+        attention = {s.target: s.data["factor"] for s in signals if s.kind == "attend_partner" and s.target}
         items: list[WorkspaceItem] = []
         older = recent[:-1]
         for index, turn in enumerate(older):
@@ -588,12 +716,21 @@ class Orchestrator:
                 items.append(WorkspaceItem(
                     kind="memory", key=episode.candidate.id, text=memory_line(episode, now),
                     relevance=episode.total, valence=episode.candidate.valence, order=index, source=episode,
+                    signal=attention.get(episode.candidate.person_id, 1.0),
                 ))
             for index, fact in enumerate(retrieval.facts):
                 items.append(WorkspaceItem(
                     kind="fact", key=fact.id, text=fact_line(fact), relevance=fact.similarity,
                     order=index, source=fact,
                 ))
+        promises = [s for s in signals if s.kind == "commitment"]
+        for index, signal in enumerate(promises):
+            ts = datetime.fromisoformat(signal.data["ts"])
+            items.append(WorkspaceItem(
+                kind="commitment", key=signal.target,
+                text=commitment_line(signal.data["text"], ts, now, signal.data.get("context")),
+                relevance=signal.strength, order=index, source=signal,
+            ))
         selection = select(items, workspace_budget(self.state.affect.arousal))
         event = self.bus.emit(
             self.entity_id, "wm.updated", selection.as_dict() | {"arousal": self.state.affect.arousal},
@@ -649,6 +786,7 @@ class Orchestrator:
         recent = self._partner_turns()
         try:
             vector, embed_ms = await query
+            self._query_vector = vector
             result = await self.retriever.retrieve(
                 self.entity_id, vector, affect=state.affect, k=self.parameters.k_retrieval,
                 lambda_mmr=self.parameters.lambda_mmr, now=self.now(),
@@ -686,7 +824,7 @@ class Orchestrator:
             self.entity_id, "affect.low_road_triggered", low_road.as_dict(), cause_id=perception_id
         )
         self.tick()
-        self.state.affect = apply_impulse(self.state.affect, arousal=ALARM_AROUSAL)
+        self.state.affect = apply_soft_impulse(self.state.affect, arousal=ALARM_AROUSAL)
         alarm = self._report_affect(
             self.now(), "low_road", {"impulse": {"arousal": ALARM_AROUSAL}}, cause_id=triggered.id
         )
@@ -827,7 +965,9 @@ class Orchestrator:
         """
         config = self.entity.config
         profile = config.appraisal_profile or config.description
-        messages = build_appraisal_messages(config.name, profile, text)
+        recent = self._partner_turns()
+        context = (recent[-1].user, recent[-1].entity) if APPRAISAL_CONTEXT and recent else None
+        messages = build_appraisal_messages(config.name, profile, text, context)
         try:
             result = await self.gpu.run(
                 GpuPriority.APPRAISAL, "appraisal", self.entity_id,
@@ -858,6 +998,7 @@ class Orchestrator:
         cause_id: str | None = None,
         alarm_arousal: float = 0.0,
         social_scale: float = 1.0,
+        trust: float | None = None,
     ) -> Event:
         """
         Aplica los efectos de un appraisal: impulso al VAD y alivio de drives (§6.2, etapa 3).
@@ -865,12 +1006,17 @@ class Orchestrator:
         El alivio de los drives produce placer por el acople de CP4 (−Σ w·Δe),
         que se suma al impulso. `alarm_arousal` es la alerta que ya sumó la vía
         baja en este turno y se descuenta (D1-30). `social_scale` reduce el
-        alivio de `social` cuando habla alguien que no es el `primary` (D1-55). Emite `affect.updated`
+        alivio de `social` cuando habla alguien que no es el `primary` (D1-55).
+        `trust` modula la empatía (D1-80); por defecto, la confianza en la
+        persona activa (1,0 sin personas). El impulso se aplica con saturación
+        suave (D1-79). Emite `affect.updated`
         (`source: "appraisal"`, con el desglose) y `drive.updated`, y devuelve el primero.
         """
         self.tick()
         state = self.state
-        impulse = affect_impulse(appraisal, state.affect, self.parameters)
+        if trust is None:
+            trust = self.partner.trust if self.partner else 1.0
+        impulse = affect_impulse(appraisal, state.affect, self.parameters, trust)
         if alarm_arousal:
             impulse = discount_alarm(impulse, alarm_arousal)
         relief = drive_relief(appraisal)
@@ -879,7 +1025,7 @@ class Orchestrator:
         after = {name: max(0.0, level - relief[name]) for name, level in before.items()}
         from_drives = valence_coupling(before, after)
         state.drives = after
-        state.affect = apply_impulse(
+        state.affect = apply_soft_impulse(
             state.affect, impulse.valence + from_drives, impulse.arousal, impulse.dominance
         )
         for name, direction in crossed_thresholds(before, after):

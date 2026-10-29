@@ -186,17 +186,42 @@ Mensaje: "Este fin de semana voy a la playa con mi primo Tomás."
 Responde SOLO con el objeto JSON, con exactamente estas claves."""
 
 
-def build_appraisal_messages(name: str, profile: str, user_text: str) -> list[dict[str, str]]:
+# Contexto del appraisal (CP10b, D1-78): el último intercambio con la persona.
+# Va en el mensaje del usuario, no en el sistema: el prompt de sistema queda
+# igual (caché de prefijo) y, sin contexto, la llamada es idéntica a la de antes,
+# así que el benchmark congelado de CP1 sigue sirviendo de regresión.
+APPRAISAL_CONTEXT_TEMPLATE = """\
+Lo que se venía hablando (solo como contexto):
+Quien escribe: "{previous_user}"
+{name}: "{previous_entity}"
+
+Evalúa solo el mensaje siguiente; usa lo anterior para entenderlo (de quién se habla, si es ironía, a qué responde).
+Mensaje: "{user_text}\""""
+
+
+def build_appraisal_messages(
+    name: str, profile: str, user_text: str, context: tuple[str, str] | None = None
+) -> list[dict[str, str]]:
     """
     Arma los mensajes de la llamada de appraisal.
 
     `profile` es una descripción breve de la entidad (quién es, qué valora),
     necesaria para estimar `self_relevance` y `goal_congruence`. El mensaje
     del usuario va aparte, en su propio rol, para que el modelo no lo confunda
-    con instrucciones.
+    con instrucciones. `context` es el intercambio anterior con la misma persona
+    (lo que dijo y lo que respondió la entidad, D1-78): sin él, el mismo mensaje
+    puede leerse al revés («¿Qué más te dijo? Quiero retarla» parecía un ataque).
     """
     system = APPRAISAL_SYSTEM_TEMPLATE.format(name=name, profile=profile.strip())
+    if context is None:
+        content = f"Mensaje: \"{user_text}\""
+    else:
+        previous_user, previous_entity = context
+        content = APPRAISAL_CONTEXT_TEMPLATE.format(
+            name=name, previous_user=previous_user.strip(), previous_entity=previous_entity.strip(),
+            user_text=user_text,
+        )
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Mensaje: \"{user_text}\""},
+        {"role": "user", "content": content},
     ]

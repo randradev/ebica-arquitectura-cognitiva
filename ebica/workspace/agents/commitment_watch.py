@@ -33,5 +33,6 @@ def observe(board: Board) -> list[Signal]:
         value = strength(age_days, board.w_commit)
         if value >= MIN_STRENGTH:
             signals.append(Signal(NAME, "commitment", value, target=commitment.id,
-                                  data={"text": commitment.text, "ts": commitment.ts.isoformat()}))
+                                  data={"text": commitment.text, "ts": commitment.ts.isoformat(),
+                                        "context": commitment.context}))
     return sorted(signals, key=lambda signal: signal.strength, reverse=True)

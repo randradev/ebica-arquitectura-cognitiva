@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16). **CP8 parte C completa** (326 pruebas). Apropiaciones 8/20 → 3/20 y atribuciones 2/8 → 8/8. Los criterios de D1-57 (≤ 1) y de cruces (0; hubo 1 de 12) no se cumplen y quedan como limitación aceptada; la opción (a) se probó y se revirtió. Consola verificada por el usuario. **CP8 parte D completa** (migración real de `calisto`: 39 episodios enlazados a Ricardo). **CP8 completo (2026-10-28).** **Plan de CP9 aprobado (2026-10-28)**, decisiones D1-61 a D1-68 confirmadas. **CP9 parte A completa** (WorkingMemory pura; 340 pruebas). **CP9 parte B completa** (pizarra en el turno, sección 7, `wm.*` y consola; 348 pruebas). **CP9 completo (2026-10-28)**: la parte C cumple 3 de 4 criterios; el largo según el estado queda como limitación (decisión del usuario). D1-8 se cierra: el resumen con el LLM no hace falta. **Plan de CP10 aprobado (2026-10-28)**, decisiones D1-69 a D1-77 confirmadas. **CP10 parte A completa** (micro-agentes puros; umbrales de repetición del sondeo; 370 pruebas). **CP10 parte B completa** (compromisos en Neo4j y término de §7.3; 378 pruebas).
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16). **CP8 parte C completa** (326 pruebas). Apropiaciones 8/20 → 3/20 y atribuciones 2/8 → 8/8. Los criterios de D1-57 (≤ 1) y de cruces (0; hubo 1 de 12) no se cumplen y quedan como limitación aceptada; la opción (a) se probó y se revirtió. Consola verificada por el usuario. **CP8 parte D completa** (migración real de `calisto`: 39 episodios enlazados a Ricardo). **CP8 completo (2026-10-28).** **Plan de CP9 aprobado (2026-10-28)**, decisiones D1-61 a D1-68 confirmadas. **CP9 parte A completa** (WorkingMemory pura; 340 pruebas). **CP9 parte B completa** (pizarra en el turno, sección 7, `wm.*` y consola; 348 pruebas). **CP9 completo (2026-10-28)**: la parte C cumple 3 de 4 criterios; el largo según el estado queda como limitación (decisión del usuario). D1-8 se cierra: el resumen con el LLM no hace falta. **Plan de CP10 aprobado (2026-10-28)**, decisiones D1-69 a D1-77 confirmadas. **CP10 parte A completa** (micro-agentes puros; umbrales de repetición del sondeo; 370 pruebas). **CP10 parte B completa** (compromisos en Neo4j y término de §7.3; 378 pruebas). **CP10 completo (2026-10-28)** (micro-agentes en el turno; 385 pruebas; el texto de las promesas lleva contexto). **Plan de CP10b aprobado**, decisiones D1-78 a D1-82 confirmadas. **CP10b partes A y B completas** (reproducción, casos aprobados; saturación suave, empatía con zona muerta y confianza, contexto en el appraisal; 400 pruebas).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -883,7 +883,7 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
   - sin compromisos, el puntaje es el de antes;
   - nada sale de su `entity_id`.
 
-**C · Micro-agentes en el turno, consola y validación**
+**C · Micro-agentes en el turno, consola y validación** — *hecha (2026-10-28): los cinco micro-agentes detectan en vivo; las notas de la sección 7 se siguen poco (limitación del modelo); las promesas guardan su contexto (ver `REPORTE.md`).*
 - El orquestador arma el `Board` después del appraisal y antes de la pizarra, ejecuta los micro-agentes, emite `agent.signal` y aplica los efectos de D1-70 a D1-75.
 - `homeostasis_watch` corre con cada cruce de umbral de los drives (en el bucle rápido).
 - Prompt:
@@ -921,6 +921,75 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
 - Promesas detectadas de más: el appraisal tiene 0 % de falsos positivos en el benchmark, pero el uso real tiene otro estilo → revisión manual en C.
 - Más ítems en la pizarra: la sección 6 crece unos 20 tokens por compromiso; hay holgura (CP9 C).
 - Complejidad del orquestador, que ya es grande → los micro-agentes son funciones puras en archivos separados y el orquestador solo arma la foto y aplica efectos.
+
+### CP10b — Calibración afectiva (aprobado el 2026-10-28)
+
+Checkpoint nuevo (D1-67, D1-77): corrige lo que la evaluación parcial tras CP8 (§7 de `evaluacion_parcial_cp8.md`) encontró en la valencia, **antes** de CP11, que mide vidas medias y necesita impulsos que no saturen.
+
+**Estado real (2026-10-28):**
+- Fórmulas de D1-23 (`ebica/affect/appraisal_effects.py`):
+  - Δv = 0,3·g·metas + 0,5·π·(valencia ajena − propia)·(1 − hostilidad);
+  - Δalerta = 0,25·H + 0,15·D;
+  - Δdominancia = −0,2·H.
+- `apply_impulse` (`vad.py`) **solo recorta** al rango: no amortigua cerca del extremo.
+- El appraisal ve **solo el mensaje actual**, sin la conversación.
+- Problemas medidos en la sesión manual (21 turnos):
+  - **(1) saturación:** el VAD quedó clavado en −1 / 1 / 0 en 6 de 7 turnos;
+  - **(2) rebote desde el tope:** con Calisto en −1, un «Hola» neutro sube +0,22 solo por la empatía;
+  - **(3) appraisal sin contexto:** preguntar por el insulto de Ana se leyó como un ataque (H 0,9); «eres una genio...», sarcasmo sin marcas, se leyó como halago; «ADIOS!» se leyó como angustia 0,9;
+  - **(4) impulsos grandes:** un mensaje mueve hasta 0,75 de valencia.
+- La dirección del ánimo fue coherente en ~14 de 21 turnos.
+
+**Idea central:** casi todo se puede medir **sin el LLM**, volviendo a calcular la trayectoria del afecto a partir de los appraisals ya registrados en los eventos, con las fórmulas nuevas. Solo el contexto del appraisal (D1-78) necesita llamadas nuevas al modelo.
+
+Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**A · Herramienta de reproducción, casos y línea base (sin cambiar el motor)** — *hecha (2026-10-28): reproducción exacta (diferencia 0,0); línea base de la sesión manual: 8 turnos en el tope de valencia, 1 rebote; appraisal sin contexto en `test` 2/7 (ver `REPORTE.md`).*
+- `scripts/reproducir_afecto.py`: lee un JSONL de eventos (los appraisals de cada turno, en orden y con su hora) y recalcula la trayectoria del VAD con un conjunto de fórmulas. Informa:
+  - turnos en el tope (|v| ≥ 0,99, alerta ≥ 0,99);
+  - rebotes (subida > 0,15 ante un mensaje con valencia ajena |·| < 0,2);
+  - el mayor salto por turno;
+  - la coherencia de la dirección con la revisión manual ya hecha (los ✔/✖ de §7).
+  Datos: la sesión manual (guardada) y las conversaciones registradas de CP8–CP10 (dev). Con las fórmulas actuales debe reproducir exactamente lo registrado: esa es su prueba.
+- `benchmarks/appraisal_contexto/cases.yaml` (nuevo; escrito primero y revisado por el usuario): unos 16 casos de **intercambio previo + mensaje**, en `dev`/`test`:
+  - apoyo que habla de un ataque («¿Qué te dijo? Necesito saberlo para retarla»);
+  - insulto a un tercero en confianza;
+  - sarcasmo que solo se entiende con el turno anterior («no me digas, eres una genio...» después de una pelea);
+  - despedidas en mayúsculas;
+  - controles donde el contexto no cambia nada.
+- Línea base de esos casos con el appraisal actual (sin contexto).
+
+**B · Cambios en el motor** (cada uno se puede apagar; se miden por separado con la reproducción y con `dev`) — *hecha (2026-10-28): 14 pruebas; la saturación suave solo se aplica a las vivencias, no a la inyección manual (ver `REPORTE.md`).*
+- Saturación suave (D1-79), en `vad.py`.
+- Empatía con zona muerta y moderada por la confianza (D1-80), en `appraisal_effects.py`.
+- Contexto en el appraisal (D1-78): el último intercambio con la persona activa, en `appraisal.py` y el orquestador.
+- Recalibración de las escalas de D1-23 (D1-81), solo si la reproducción muestra que siguen siendo grandes después de D1-79 y D1-80.
+- **Aceptación** (pytest):
+  - lejos del tope, la saturación suave no cambia el impulso; cerca, lo reduce; en sentido contrario, no lo frena;
+  - la zona muerta anula la empatía ante un mensaje neutro;
+  - el appraisal sin contexto produce **el mismo prompt** que hoy, así que el benchmark congelado sigue valiendo;
+  - las fórmulas de CP4 y la razón de vidas medias entre N alto y bajo no cambian.
+
+**C · Medición**
+- Reproducción de la sesión manual y de las conversaciones de `dev` con las fórmulas nuevas, contra los criterios de D1-82.
+- Casos de contexto: `dev` para ajustar el prompt; `test` medido una vez.
+- Regresión: el benchmark congelado del appraisal (`test`, sin contexto; se espera lo mismo dentro del ruido) y la vía baja (no cambia).
+- Prueba en vivo: el escenario de Ana y Ricardo, con un guion fijo, en una entidad temporal; revisión manual de la trayectoria.
+
+**Decisiones para CP10b** (2026-10-28: todas confirmadas)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1-78 | Contexto en el appraisal | (a) El último intercambio con la persona activa (su mensaje anterior y la respuesta de la entidad); (b) los últimos 3; (c) nada | **(a)**: es lo que faltó en los 4 errores medidos y suma ~100–200 tokens al appraisal (latencia estimada +0,1–0,2 s, a medir). Va en una sección aparte del prompt («Lo que se venía hablando»), con la instrucción de evaluar **el mensaje actual** usando eso como contexto. Sin intercambio previo, el prompt queda idéntico al de hoy, y el benchmark congelado sirve como regresión. |
+| D1-79 | Saturación suave | (a) Recorte duro (hoy); (b) el impulso que empuja hacia el extremo se multiplica por `1 − d²`, con `d` = la distancia ya recorrida hacia ese extremo (para la valencia, `max(0, v·signo(Δ))`) | **(b)**: en 0 no cambia nada; en −0,5, un impulso negativo vale el 75 %; en −0,9, el 19 %. Los impulsos en sentido contrario (que alejan del extremo) no se tocan. Se aplica igual a la alerta (hacia 1) y a la dominancia (hacia 0 y hacia 1). Un insulto más todavía se nota cerca del fondo, pero el estado no queda clavado. |
+| D1-80 | Empatía (el rebote) | (a) Zona muerta: sin contagio si la valencia ajena está entre −0,2 y 0,2; (b) además, π × (0,5 + 0,5·confianza); (c) nada | **(a) + (b)**: el contagio necesita una emoción que contagiar (un «Hola» neutro no la tiene), y uno se contagia más de quien confía (Ricardo 0,40 → ×0,70; Ana 0,20 → ×0,60). Usa el `partner_model` de CP8. Es una desviación menor de §6.2, que aplica π a todo mensaje (como D1-27). |
+| D1-81 | Escalas de D1-23 | Recalibrar 0,3 / 0,5 ya / después de D1-79 y D1-80 | **Después**: D1-79 y D1-80 atacan las causas medidas. Solo si la reproducción sigue mostrando saltos de más de 0,5 en un turno se propone bajar las escalas, ajustando con `dev`. |
+| D1-82 | Criterios (fijados antes de medir) | — | En la reproducción de la sesión manual: (1) turnos con \|v\| ≥ 0,99: de 6 a como máximo 2; (2) ningún rebote > 0,15 ante un mensaje neutro; (3) la dirección se mantiene en los turnos que la revisión manual juzgó coherentes. En los casos de contexto (`test`): los errores de contexto corregidos en al menos 2 de cada 3, sin empeorar los controles. Benchmark congelado del appraisal: sin empeoras fuera del ruido. |
+
+**Riesgos:**
+- Cambiar la dinámica afecta la medición de CP11 → las fórmulas de decaimiento (CP4) no cambian; solo el tamaño de los impulsos cerca del extremo. Las pruebas de vidas medias de CP4 deben seguir pasando.
+- El contexto en el appraisal puede cambiar sus resultados en mensajes sin relación → controles en los casos, y el benchmark sin contexto como regresión.
+- Ajustar con los mismos datos que se miden → la sesión manual sirve para diagnosticar, y los criterios quedan fijados antes de medir. Los casos de contexto tienen `test` aparte, medido una vez.
 
 ### CP11 — Validación de la fase
 - Hallazgo de CP4, a resolver aquí: con el acople drive → valencia activo, la vida media medida respecto del reposo nominal es mayor que `h_neg` (Calisto 50,4 min frente a 42,5; `calisto_n_bajo` 30,6 frente a 27,5; razón 1,65 frente a 1,55, +6,6 %). Los drives que crecen arrastran la valencia hacia abajo. Opciones: medir respecto del equilibrio efectivo, o con los drives estables. Se decide al iniciar CP11.
