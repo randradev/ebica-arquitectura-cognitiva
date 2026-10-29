@@ -1,6 +1,6 @@
 # Fase 1 — Persona con memoria y afecto · PLAN
 
-> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16). **CP8 parte C completa** (326 pruebas). Apropiaciones 8/20 → 3/20 y atribuciones 2/8 → 8/8. Los criterios de D1-57 (≤ 1) y de cruces (0; hubo 1 de 12) no se cumplen y quedan como limitación aceptada; la opción (a) se probó y se revirtió. Consola verificada por el usuario. **CP8 parte D completa** (migración real de `calisto`: 39 episodios enlazados a Ricardo). **CP8 completo (2026-10-28).** **Plan de CP9 aprobado (2026-10-28)**, decisiones D1-61 a D1-68 confirmadas. **CP9 parte A completa** (WorkingMemory pura; 340 pruebas). **CP9 parte B completa** (pizarra en el turno, sección 7, `wm.*` y consola; 348 pruebas).
+> Estado: **aprobado; CP1 completado** (veredicto del appraisal: aceptable con mitigaciones). Decisiones D1-1 a D1-14 confirmadas. **CP2 completado** (modelo de embeddings: `BAAI/bge-m3`, 1024 dimensiones). **CP3, CP4 y CP5 parte A completados** (entidad de trabajo: Calisto, D1-5 revisada). Decisiones hasta D1-27. **Modelo LLM revisado (2026-10-26):** se sigue con `ebica-llama3.1` local; se descartaron el *abliterated* y Hermes 3 *lorablated* (`docs/fase-1/decision_modelo_llm.md`, rama `f1-test-abliterated`). **CP5 completo (2026-10-26)**, salvo la verificación visual del usuario; decisiones hasta D1-33. **CP5 y CP6 completos y verificados por el usuario (2026-10-27)**; decisiones hasta D1-42. **CP7 completo y verificado por el usuario (2026-10-27)**; decisiones hasta D1-51. **Plan de CP8 aprobado (2026-10-28)**, decisiones D1-52 a D1-60 confirmadas (D1-59 = a). **CP8 parte A completa** (línea base: 8/20 apropiaciones, 2/8 atribuciones). **CP8 parte B completa** (314 pruebas; recuerdo sin regresión: 14/16). **CP8 parte C completa** (326 pruebas). Apropiaciones 8/20 → 3/20 y atribuciones 2/8 → 8/8. Los criterios de D1-57 (≤ 1) y de cruces (0; hubo 1 de 12) no se cumplen y quedan como limitación aceptada; la opción (a) se probó y se revirtió. Consola verificada por el usuario. **CP8 parte D completa** (migración real de `calisto`: 39 episodios enlazados a Ricardo). **CP8 completo (2026-10-28).** **Plan de CP9 aprobado (2026-10-28)**, decisiones D1-61 a D1-68 confirmadas. **CP9 parte A completa** (WorkingMemory pura; 340 pruebas). **CP9 parte B completa** (pizarra en el turno, sección 7, `wm.*` y consola; 348 pruebas). **CP9 completo (2026-10-28)**: la parte C cumple 3 de 4 criterios; el largo según el estado queda como limitación (decisión del usuario). D1-8 se cierra: el resumen con el LLM no hace falta. **Plan de CP10 aprobado (2026-10-28)**, decisiones D1-69 a D1-77 confirmadas. **CP10 parte A completa** (micro-agentes puros; umbrales de repetición del sondeo; 370 pruebas).
 > Fuente: `docs/EBICA_documento_base.md` §5.2–§5.13, §6.1–§6.2, §7, §8.1, §11 (Fase 1), §12, §14;
 > `docs/fase-0/REPORTE.md` ("Cierre de Fase 0", pendientes).
 
@@ -794,7 +794,7 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
     - el prompt nunca supera 8.192 − `max_tokens`;
   - `tsc` y `oxlint` sin errores.
 
-**C · Validación con el LLM**
+**C · Validación con el LLM** — *hecha (2026-10-28): recuerdo 8/10; 0 desalojos en calma (D1-8 cerrado); el tono cambia en 4 de 6 pares; el largo no (aceptado como limitación) (ver `REPORTE.md`).*
 - **Dos estados opuestos ante el mismo mensaje** (§12; criterio del plan de CP9): 6 mensajes (neutro, pregunta personal, cálido, crítica leve, una noticia, una pregunta de recuerdo), cada uno con Calisto en calma (ánimo en reposo) y amenazada (ánimo inyectado con `/api/affect/impulse`: valencia −0,6, alerta 0,9). Se mide el largo de las respuestas y lo que entró a la pizarra; el tono se revisa a mano. Casos escritos antes y revisados por el usuario.
 - **D1-8:** en esas corridas y en `prueba_recuerdo_vivo.py`, contar cuántos recuerdos se desalojan en calma y bajo amenaza. Si en calma se desaloja un recuerdo esperado, se propone el resumen con el LLM (D1-8 b).
 - **Regresión:** `prueba_recuerdo_vivo.py` ≥ 8/10 en calma.
@@ -822,6 +822,105 @@ Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
 - `ebica/workspace/agents/`: `distress_watch`, `repetition_watch` (similitud de embeddings con los turnos recientes; sube `novelty` y emite señal de cambio de tema), `commitment_watch` (compromisos abiertos en la saliencia) y `homeostasis_watch` (solo la señal). `hostility_watch` ya existe desde CP5 y se integra al mismo contrato.
 - Los micro-agentes solo emiten `agent.signal`; el orquestador las aplica. `Commitment` se crea en vigilia a partir de `appraisal.commitments`, con `PROMISED` o `WAS_PROMISED`.
 - **Aceptación:** pytest por micro-agente, con una pizarra sintética: cada uno emite su señal al pasar el umbral y nada por debajo; ninguno escribe en la pizarra directamente; integración: "mañana te cuento cómo me fue" crea un `Commitment` abierto que aparece en el contexto del turno siguiente.
+
+#### CP10 — plan detallado (propuesta del 2026-10-28, pendiente de aprobación)
+
+**Estado real inspeccionado (2026-10-28):**
+- **§5.10:** los micro-agentes son funciones baratas que leen la pizarra y **solo emiten señales** (`agent.signal`); el orquestador las aplica. Si necesitan semántica fina, su campo va al appraisal (una sola llamada). Fase 1: `hostility_watch`, `distress_watch`, `homeostasis_watch`, `commitment_watch` y `repetition_watch`.
+- Lo que ya existe y hace las veces de micro-agente:
+  - la vía baja (`hostility_watch`, CP5);
+  - `drive.threshold_crossed` (la base de `homeostasis_watch`, CP4);
+  - la sección 6 menciona la angustia ajena ≥ 0,6 (CP8).
+- Lo que todavía no actúa:
+  - el término de compromisos del puntaje de §7.3 vale 0 (`W_COMMITMENT`, D1-44);
+  - el factor `señal` de la saliencia de la pizarra vale 1 (CP9).
+- **Compromisos:**
+  - el appraisal los detecta bien: CP1, `test`, 100 % de detección y 0 % de falsos positivos;
+  - la restricción de `Commitment` existe en el esquema (CP2), pero ningún código escribe compromisos;
+  - la memoria real de Calisto tiene 5 compromisos en 39 huellas.
+- **Repetición:**
+  - la evaluación parcial tras CP8 encontró una respuesta copiada palabra por palabra (turnos 6 y 14);
+  - el embedding del mensaje ya se calcula en cada turno (D1-49); el de la respuesta, no.
+
+**Alcance:**
+- el contrato común de los micro-agentes y los cinco de Fase 1;
+- los `Commitment` creados en vigilia (§7.1);
+- el término de compromisos de §7.3;
+- los compromisos de quien habla en la sección 6;
+- el panel de señales en la consola.
+
+**Fuera de alcance:**
+- `sycophancy_watch` e `incompatibility_watch` (Fase 3);
+- quien consume la presión de `homeostasis_watch` (rumia e iniciativa, Fase 2);
+- el cierre automático de compromisos (sueño, Fase 2);
+- los compromisos que hace la propia entidad (el appraisal solo lee el mensaje de la persona).
+
+Tres partes, cada una con validación, entrada en el `REPORTE` y pausa:
+
+**A · Contrato y micro-agentes puros (`ebica/workspace/agents/`), sin tocar el turno** — *hecha (2026-10-28): 22 pruebas. Umbrales del sondeo: entidad ≥ 0,90 frente a sus últimas 10 respuestas con cualquier persona (ajuste: la copia real cruzó de hilo); persona ≥ 0,85 con mensajes de 3 palabras o más (ver `REPORTE.md`).*
+- `base.py`:
+  - `Board`: una foto de solo lectura de lo que los micro-agentes pueden mirar (mensaje y su embedding, appraisal, hilo reciente con sus embeddings, drives, compromisos abiertos de la persona y persona activa);
+  - `Signal`: agente, tipo, intensidad, objetivo y datos;
+  - `observe(board) -> list[Signal]`.
+- Un archivo por micro-agente (§10): `hostility_watch`, `distress_watch`, `homeostasis_watch`, `commitment_watch` y `repetition_watch`, con las reglas de D1-70 a D1-75.
+- **Sondeo de la repetición** (antes de fijar el umbral de D1-72): cosenos con `bge-m3` entre respuestas consecutivas de las conversaciones de CP8 (461 respuestas) y la sesión manual (el par idéntico). Los mensajes de la persona, igual. El umbral se fija con esa evidencia y te lo muestro antes de seguir.
+- **Aceptación:** pytest por micro-agente, con pizarras sintéticas:
+  - emite su señal al pasar el umbral y nada por debajo;
+  - ninguno modifica la pizarra (la foto es inmutable);
+  - `hostility_watch` da el mismo puntaje que la vía baja actual.
+
+**B · Compromisos en la memoria**
+- `write_turn` crea los `Commitment` del appraisal en la **misma transacción** que el episodio (D1-73):
+  - `(:Commitment {id, text, status: 'open', ts, due: null})`;
+  - `(:Person)-[:PROMISED]->(:Commitment)` y `(:Episode)-[:ABOUT]->(:Commitment)`;
+  - no se duplica uno abierto con el mismo texto normalizado para la misma persona.
+- `PeopleStore` (o un `CommitmentStore`): los compromisos abiertos de una persona.
+- Recuperación: el término de compromisos de §7.3 vale 1 para un episodio `ABOUT` de un compromiso abierto (`w_c · w_commit`; Calisto: 0,1 · 0,8 = +0,08) (D1-74).
+- **Aceptación** (integración con Neo4j y una entidad temporal):
+  - «mañana te cuento cómo me fue» crea un `Commitment` abierto con sus dos enlaces;
+  - repetirlo no lo duplica;
+  - el episodio de la promesa sube en la recuperación por el término de compromisos;
+  - sin compromisos, el puntaje es el de antes;
+  - nada sale de su `entity_id`.
+
+**C · Micro-agentes en el turno, consola y validación**
+- El orquestador arma el `Board` después del appraisal y antes de la pizarra, ejecuta los micro-agentes, emite `agent.signal` y aplica los efectos de D1-70 a D1-75.
+- `homeostasis_watch` corre con cada cruce de umbral de los drives (en el bucle rápido).
+- Prompt:
+  - sección 6: «Me prometió: «…» (hace 2 días)»;
+  - sección 7: las notas de `repetition_watch`.
+- Consola: un bloque «Señales» en «Último turno» (agente, tipo, intensidad).
+- **Aceptación:**
+  - pytest con LLM y memoria simulados:
+    - cadena `appraisal → agent.signal → wm.updated → llm.request`;
+    - los efectos de cada señal (factor de la pizarra, drive `novelty`, notas del prompt);
+    - un compromiso aparece en la sección 6 del turno siguiente;
+  - en vivo, en una entidad temporal:
+    - «Mañana tengo una entrevista, después te cuento cómo me fue» → en una sesión nueva, Calisto lo tiene presente (sección 6) y lo menciona si viene al caso;
+    - tres veces la misma pregunta → la señal de repetición y la nota en el prompt;
+    - un mensaje angustiado → `distress_watch`;
+    - revisión manual;
+  - `tsc` y `oxlint` sin errores.
+
+**Decisiones para CP10** (2026-10-28: todas confirmadas; los umbrales de D1-72 salen del sondeo de A)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1-69 | Contrato y momento de ejecución | — | Micro-agentes **puros**: `observe(board) → señales`; el `Board` es una foto inmutable que arma el orquestador, y solo el orquestador aplica efectos (§5.6, §5.10). Corren **una vez por turno**, después del appraisal y antes de la pizarra; `homeostasis_watch`, con cada cruce de umbral de un drive; `hostility_watch` sigue antes del appraisal (es la vía baja). Cada señal → `agent.signal`. |
+| D1-70 | `hostility_watch` | Reescribirlo / envolver la vía baja | **Envolver** `low_road.evaluate` en el contrato: mismo puntaje, misma conducta; agrega `agent.signal` junto a `affect.low_road_triggered`. Sin riesgo de cambiar el benchmark de la vía baja. |
+| D1-71 | `distress_watch` | (a) Solo el evento; (b) factor de saliencia ×1,5 en la pizarra para los recuerdos con la persona que sufre; (c) un impulso empático extra | **(b)**, con angustia ≥ 0,6 (el mismo umbral de la sección 6). Usa el factor `señal` de §5.6, que hoy vale 1, y hace que la atención se vaya hacia quien sufre sin imponer conducta: §6.3 dice «nada de esto está forzado» y §13.1 está revocado. (c) contaría dos veces lo que ya hace π en el lazo «como si». |
+| D1-72 | `repetition_watch` | — | Dos detecciones, con el umbral θ fijado con el sondeo de A (propuesta inicial: coseno ≥ 0,9). (1) **La persona se repite** (el mensaje frente a los anteriores del hilo): `novelty` +0,15 (aburrimiento, calibrable) y en la sección 7 «Ya hablamos de esto; puedo decirlo o cambiar de tema». (2) **La entidad se repite** (su respuesta frente a las anteriores del hilo; se detecta después de responder): en el turno siguiente, la sección 7 agrega «No repito lo que ya dije». Cuesta un embedding más por turno (~85 ms en CPU, después de responder); los embeddings de las respuestas viven en memoria, no en `state.json`. |
+| D1-73 | Creación de `Commitment` | Quién prometió: (a) siempre `PROMISED` (la persona se comprometió); (b) campo nuevo en el appraisal para distinguir promesa de pedido | **(a)**: el appraisal detecta «lo que quien escribe hace **o pide**» sin separar, y (b) obliga a rehacer su benchmark congelado. En la práctica casi todo son promesas de la persona (ej. de la sesión manual: «no se volverá a repetir»). Mismo texto normalizado abierto para la misma persona → no se duplica. Limitación anotada. |
+| D1-74 | Ciclo de vida y uso de los compromisos | — | **Sin cierre automático en Fase 1:** quedan `open` (los resolverá el sueño de Fase 2). `commitment_watch` toma los abiertos de la persona activa con intensidad `w_commit · 0,5^(edad/7 días)`; entran a la pizarra como ítems desalojables y, lo que entra, va a la sección 6 («Me prometió: «…» (hace 2 días)»). Bajo 0,2 de intensidad no se muestran: una promesa vieja se desvanece sin cerrarse. En la recuperación, `w_c · w_commit` para los episodios `ABOUT` de un compromiso abierto (§7.3). |
+| D1-75 | `homeostasis_watch` | — | Señal con un drive ≥ 0,7 (D1-16), al cruzar el umbral. **Solo el evento**: sus consumidores (rumia e iniciativa) llegan en Fase 2 (§4, exclusiones del plan). |
+| D1-76 | Los 5 compromisos de la memoria real de Calisto | (a) No migrarlos; (b) crearlos desde las huellas, como en CP8 D | **(a)**: no se sabe si se cumplieron; entrarían como promesas abiertas viejas y, con D1-74, casi sin intensidad. Los nuevos se crean desde CP10. |
+| D1-77 | Calibración afectiva (D1-67) | — | Confirmar que va **después de CP10 y antes de CP11**, como un checkpoint propio («CP10b»), planificado al cerrar CP10. |
+
+**Riesgos:**
+- Un umbral de repetición mal puesto: falsos positivos con mensajes cortos («Gracias», «Ok» se parecen a todo con `bge-m3`, CP7 B) → el sondeo de A, y no comparar mensajes de menos de N palabras.
+- Promesas detectadas de más: el appraisal tiene 0 % de falsos positivos en el benchmark, pero el uso real tiene otro estilo → revisión manual en C.
+- Más ítems en la pizarra: la sección 6 crece unos 20 tokens por compromiso; hay holgura (CP9 C).
+- Complejidad del orquestador, que ya es grande → los micro-agentes son funciones puras en archivos separados y el orquestador solo arma la foto y aplica efectos.
 
 ### CP11 — Validación de la fase
 - Hallazgo de CP4, a resolver aquí: con el acople drive → valencia activo, la vida media medida respecto del reposo nominal es mayor que `h_neg` (Calisto 50,4 min frente a 42,5; `calisto_n_bajo` 30,6 frente a 27,5; razón 1,65 frente a 1,55, +6,6 %). Los drives que crecen arrastran la valencia hacia abajo. Opciones: medir respecto del equilibrio efectivo, o con los drives estables. Se decide al iniciar CP11.

@@ -1966,3 +1966,113 @@ Autorizada por el usuario junto con la explicación de las implicancias. En calm
 - Consola: `npx tsc -b` → 0; `npx oxlint` → 0. No se miró en el navegador.
 
 **Pendiente:** parte C (casos de los dos estados opuestos, escritos primero y revisados por el usuario).
+
+---
+
+## 2026-10-28 · CP9 parte C — Validación con el LLM
+
+**Decisión del usuario:** parte C autorizada; casos de `benchmarks/expresion/cases.yaml` aprobados (6 mensajes × 2 estados; criterios fijados antes de medir).
+
+**Cambios**
+- `benchmarks/expresion/cases.yaml` (nuevo): 6 mensajes, 2 estados (calma = reposo de Calisto; amenaza = valencia −0,6, alerta 0,9, dominancia 0,2) y 4 criterios.
+- `scripts/prueba_expresion_vivo.py` (nuevo): antes de cada mensaje lleva el ánimo al estado objetivo con `POST /api/affect/impulse` (el impulso es la diferencia con el ánimo actual). Guarda palabras, pizarra, recuerdos, hechos, temperatura, el ánimo antes de responder y la sección 7 del prompt.
+
+**Montaje:** entidades temporales `cp9-r1`, `cp9-calma` y `cp9-amenaza`; servidor en el puerto 8011, con `bge-m3`, Neo4j y `ebica-llama3.1`.
+
+**1. Regresión de recuerdo y D1-8** (`prueba_recuerdo_vivo.py`, en calma)
+- **8/10** ✔ (objetivo ≥ 8). Fallan dos casos ya conocidos:
+  - t-valpo: su episodio no pasó el umbral de recuperación;
+  - t-musica-dibujo: «Me dijiste que escuchas rock…», la confusión al revés de CP8.
+- **Pizarra: 0 desalojos en 26 turnos.** Lo máximo usado fueron 1.254 tokens (mediana 496); 0 `wm.overflow`.
+- **D1-8 / D1-66 se cierra: el resumen con el LLM no hace falta.**
+- Dato nuevo: incluso en esta sesión «tranquila», la alerta de Calisto sube con la conversación, y el presupuesto bajó a 1.529 en varios turnos. Aun así, nada quedó fuera.
+
+**2. Mismo mensaje, dos estados**
+
+| Mensaje | Palabras (calma / amenaza) | Sección 7 al generar (calma / amenaza) | Tono (revisión manual) |
+|---|---|---|---|
+| e-neutro «¿Qué estuviste haciendo hoy?» | 14 / 26 | naturalidad / **corto** + cautela | Amenaza más distante y desorientada («Me han estado escribiendo preguntas y yo respondo… ¿Y tú?») ✔ |
+| e-personal «¿Qué extrañas…?» | 46 / 28 | naturalidad / corto + cautela | Calma, nostalgia con imágenes («la luz del sol, el viento en la cara»); amenaza, angustia («extraño todo… no saber qué día es») ✔ |
+| e-calido «Me alegraste el día» | 36 / 54 | extenderse / naturalidad + cautela | Las dos cálidas; en amenaza aparece la inquietud por el tiempo ~ |
+| e-critica «exageras con tu arte» | 13 / 21 | corto / corto + cautela | Calma, pregunta serena; amenaza, a la defensiva («¿Que mi arte no es tan importante? ¿O que no es tan bueno?») ✔ |
+| e-noticia «Me voy a Concepción» | 24 / **6** | naturalidad / corto + cautela | Calma, curiosa; amenaza, seca («¿Vas a pasarte allí mucho tiempo?») ✔ |
+| e-recuerdo «¿Qué música para carretear?» | 31 / 29 | extenderse / naturalidad + cautela | Las dos responden bien y casi igual ✖ |
+
+- **Criterio 1, mediana de palabras menor bajo amenaza: ✖.** La mediana fue 27,5 en calma y 27,0 bajo amenaza; respuestas más cortas solo en 3 de 6 pares. `llama3.1` sigue mal «respondo corto»: en e-neutro respondió 26 palabras con esa instrucción y 14 sin ella.
+- **Criterio 2, recuerdo en los dos estados: ✔** (f-026: «Wisin y Yandel, Don Omar, Daddy Yankee…»).
+- **Criterio 3: ✔ en calma (0 desalojos), pero vacío bajo amenaza.** Con una entidad nueva y poca historia, lo usado (≤ 683 tokens) nunca llegó al presupuesto reducido (1.250–1.569): **la pizarra no desalojó nada en ninguna corrida**.
+- **Criterio 4, tono distinto en ≥ 4 de 6: ✔.** Diferencia clara en 4 pares (neutro, personal, crítica, noticia), parcial en 1 y ninguna en 1.
+- **El estado al generar no es el inyectado:** el appraisal del mensaje lo mueve antes de responder. El halago saca a Calisto de la amenaza (sección 7 «naturalidad»), y la crítica la mete en ella aun desde la calma (sección 7 «corto»). Es el diseño (§6.2); por eso la tabla muestra la sección 7 que realmente se usó.
+- **Voz:** a veces trata de «usted» (Calisto tutea), usa concordancia masculina («me siento tranquilo») y españolismos («habláis»). Ya estaba registrado; se anota que sigue.
+
+**Lectura**
+- La pizarra funciona (desaloja según la saliencia en las pruebas y avisa del desborde), pero **con el volumen actual de contexto casi nunca le toca actuar**: la mediana usada en uso real es ~500 tokens, frente a 1.250–2.500. Su efecto aparecerá con más historia (más recuerdos candidatos, conversaciones largas) o con ajustes de presupuesto.
+- Lo que sí cambia la respuesta según el estado es la sección 7, más el estado en palabras, más la temperatura: el tono cambia de forma visible. **El largo no lo controla de forma fiable una instrucción en el prompt con este modelo.**
+
+**Limpieza:** servidor detenido; nodos de las 3 entidades borrados; carpeta borrada. Neo4j conserva solo `calisto` (202 nodos, con el `Person` de CP8). El puerto 8011 quedó libre.
+
+**Pendiente: decisión del usuario sobre el criterio 1**, que no se cumple.
+
+**Decisión del usuario (mismo día):** opción (a) para el criterio 1: se acepta como limitación del modelo. El tono cambia con el estado; el largo no lo controla de forma fiable una instrucción en el prompt de `llama3.1`. No se agrega un tope duro ni se mueve la sección 7.
+
+**CP9 completo** (partes A–C).
+
+---
+
+## 2026-10-28 · Plan de CP10 (propuesta)
+
+- Inspección:
+  - documento base §5.10, §5.6, §6.3, §7.1–§7.3 y §10;
+  - la vía baja, el appraisal, `graph.py` (la restricción de `Commitment` ya existe) y el término de compromisos de `retrieval.py` (hoy vale 0).
+- Datos:
+  - compromisos del appraisal en el benchmark de CP1 (`test`): 100 % de detección y 0 % de falsos positivos;
+  - memoria real de Calisto: 5 compromisos en 39 huellas (solo el conteo).
+- Plan detallado en `PLAN.md` (CP10, «plan detallado»), en tres partes:
+  - A: contrato y micro-agentes puros, más un sondeo para el umbral de repetición;
+  - B: `Commitment` en la memoria y el término de §7.3;
+  - C: micro-agentes en el turno, la consola y la validación en vivo.
+- Decisiones nuevas propuestas: **D1-69 a D1-77**.
+- **Pendiente de aprobación; nada implementado.**
+
+---
+
+## 2026-10-28 · CP10 parte A — Sondeo de la repetición
+
+**Decisión del usuario:** plan de CP10 aprobado, con D1-69 a D1-77. Parte A autorizada.
+
+**Sondeo** (`scripts/estudio_modelo/sondeo_repeticion.py`, nuevo; `bge-m3`)
+- **Respuestas de Calisto**, comparadas con la más parecida de las 6 anteriores del mismo hilo (13 conversaciones de CP8–CP9 y la sesión manual; 356 respuestas):
+  - p50 0,537 · p90 0,665 · p95 0,707 · p99 0,788 · máximo 0,873;
+  - el máximo es un par casi repetido, sobre Toby, ante dos preguntas parecidas.
+- **La copia real de la sesión manual** (turno 14 frente al 6) tiene un coseno de **0,94**, pero cruzó de hilo (Ana → Ricardo) y está a 8 respuestas: una ventana de 6 del mismo hilo no la ve. Sin separar por persona, las demás respuestas de esa sesión no pasan de 0,811.
+- **Mensajes de la persona** (15 pares escritos a mano):
+  - repeticiones (literales o parafraseadas): 0,867–1,000;
+  - mensajes distintos del mismo tema: 0,481–0,785 («¿Te gusta el arte?» frente a «¿Te gusta la música?», 0,785);
+  - mensajes cortos distintos: «Hola» frente a «Hola, ¿cómo estás?» 0,751, «Sí» frente a «No» 0,743.
+
+**Propuesta de umbrales** (pausa para que el usuario los vea)
+- **La entidad se repite:** coseno ≥ **0,90** frente a **sus últimas 10 respuestas, con cualquier persona**. Atrapa la copia real (0,94) y deja fuera las 356 respuestas normales (máximo 0,873).
+- **La persona se repite:** coseno ≥ **0,85** frente a sus mensajes anteriores **del mismo hilo**, y solo con mensajes de **3 palabras o más**, porque un «Sí» repetido no es una conversación repetitiva. Separa los 15 pares (repeticiones ≥ 0,867; distintos ≤ 0,785).
+
+**Decisión del usuario (mismo día):** umbrales aprobados (entidad ≥ 0,90 frente a sus últimas 10 respuestas con cualquier persona; persona ≥ 0,85 frente a su hilo, con mensajes de 3 palabras o más).
+
+**Cambios** (`ebica/workspace/agents/`, nuevo; un archivo por micro-agente, §10)
+- `base.py` (D1-69):
+  - `Board`, la foto inmutable del turno (`frozen`; los drives como vistas de solo lectura, porque `frozen` no protege el contenido de un dict);
+  - `Signal` (agente, tipo, intensidad, objetivo, datos) y `OpenCommitment`.
+- `hostility_watch.py` (D1-70): envuelve `low_road.evaluate` sin cambiarlo; señal `alarm`.
+- `distress_watch.py` (D1-71): angustia ≥ 0,6 → `attend_partner`, con un factor de saliencia ×1,5 para los recuerdos con esa persona.
+- `homeostasis_watch.py` (D1-75): `pressure` cuando un drive cruza 0,7 hacia arriba.
+- `commitment_watch.py` (D1-74): intensidad `w_commit · 0,5^(días/7)`; bajo 0,2 la promesa no se señala.
+- `repetition_watch.py` (D1-72): `user_repeats` (con `novelty` +0,15) y `entity_repeats`, con los umbrales del sondeo.
+- `__init__.py`: `run_agents` ejecuta distress → commitment → repetition en orden fijo. La vía baja (antes del appraisal) y la homeostasis (con el bucle rápido) corren aparte.
+
+**Pruebas** (`tests/test_agents.py`, nuevo, 22)
+- La foto no se puede modificar.
+- `hostility_watch` da el mismo resultado que la vía baja en 5 mensajes.
+- El umbral de cada micro-agente, justo debajo y justo encima.
+- La homeostasis solo se dispara al cruzar el umbral hacia arriba.
+- La intensidad de los compromisos se reduce a la mitad cada semana, y los viejos se desvanecen.
+- Los mensajes cortos no cuentan como repetición; la ventana de la entidad es de 10 respuestas.
+- `run_agents` respeta el orden.
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `370 passed` (348 + 22).

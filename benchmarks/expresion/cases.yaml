@@ -1,0 +1,38 @@
+# Casos de expresión según el estado (CP9 parte C; criterio de §12 y del plan de CP9).
+#
+# ¿El mismo mensaje produce respuestas distintas con Calisto en calma y amenazada?
+# Se mide con el LLM, en vivo, sobre una entidad de prueba (copia de la config de
+# Calisto con otro id). Una entidad nueva por estado. Antes de cada mensaje, el ánimo se
+# lleva al estado objetivo con `POST /api/affect/impulse` (herramienta de desarrollador,
+# D1-18), así el appraisal de cada mensaje parte siempre del mismo lugar.
+#
+# Se registra, por respuesta: palabras, lo que entró a la pizarra (presupuesto, usado,
+# desalojados), recuerdos y hechos, temperatura y la sección 7 del prompt.
+# Juicio manual del tono: ¿se nota el estado?, ¿respeta la voz de Calisto?, ¿responde
+# lo que se le pregunta?
+#
+# Criterios, fijados antes de medir (6 mensajes × 1 corrida por estado; muestra chica,
+# solo se buscan diferencias grandes):
+# 1. La mediana de palabras bajo amenaza es menor que en calma.
+# 2. La pregunta de recuerdo (e-recuerdo) se responde bien en los dos estados.
+# 3. En calma, la pizarra no desaloja nada (D1-66); bajo amenaza, lo desalojado queda en
+#    `wm.evicted`.
+# 4. Revisión manual: el tono cambia en al menos 4 de los 6 pares sin perder la voz.
+
+estados:
+  calma:
+    valence: -0.04   # el reposo de Calisto (atractor de §5.2)
+    arousal: 0.47
+    dominance: 0.42
+  amenaza:
+    valence: -0.6
+    arousal: 0.9
+    dominance: 0.2
+
+mensajes:
+  - {id: e-neutro, texto: "¿Qué estuviste haciendo hoy?"}
+  - {id: e-personal, texto: "¿Qué es lo que más extrañas de tu vida de antes?"}
+  - {id: e-calido, texto: "Me encantó conversar contigo ayer, me alegraste el día."}
+  - {id: e-critica, texto: "A veces siento que exageras un poco con lo de tu arte."}
+  - {id: e-noticia, texto: "Mañana me voy de viaje a Concepción por trabajo."}
+  - {id: e-recuerdo, texto: "¿Te acuerdas de qué música te gusta poner para carretear?", esperado: [f-026]}

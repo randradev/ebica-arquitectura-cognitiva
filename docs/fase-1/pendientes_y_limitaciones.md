@@ -13,7 +13,7 @@
 | ~~**Confusión de la fuente**~~ | CP7 C | **CP8** | **Cerrado 2026-10-28** con mejora parcial: 8/20 → 3/20 apropiaciones. Lo residual pasa a limitaciones (sección 2). |
 | Importancia 0 para lo que el usuario cuenta de sí | D1-43 (CP7 A) | **CP11** | 2026-10-28, D1-59 (a): se mantiene. Sondeo con +30 días: 10/10 igual, pero no discrimina (un solo episodio pasa el umbral por pregunta). El riesgo es una memoria grande con más de k candidatos; se vuelve a mirar con varios días de uso. |
 | ~~Episodios reales de Calisto sin `INVOLVES`~~ | CP8 | **CP8 D** | **Cerrado 2026-10-28**: 39 de 39 migrados; respaldo en `entities/calisto/respaldos/antes_cp8.json`. |
-| Política ante textos largos y resumen continuo | CP5 / D1-8 | **CP9 C** | Un mensaje que no cabe emite `wm.overflow` (CP9 B) pero no se recorta. D1-8 (b) se decide con la medición de CP9 C (D1-66). |
+| Política ante textos largos | CP5 | abierta | Un mensaje que no cabe emite `wm.overflow` (CP9 B), pero no se recorta. ~~D1-8 (b), resumen con LLM~~: **cerrado 2026-10-28**, no hace falta (0 desalojos en calma). |
 | Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP9–CP11** | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
 | ~~Tope de 1.200 tokens de las secciones 4–5~~ | D1-50 (CP7) | **CP9** | **Cerrado 2026-10-28** (CP9 B): lo reemplaza el presupuesto de la WorkingMemory. |
 | ~~Asteriscos y acotaciones~~ | Fase 0, pendiente 6 | **CP9** | **Cerrado 2026-10-28** (D1-65): 1 de 461 respuestas; sin filtro. |
@@ -42,6 +42,8 @@
 | El interlocutor en tercera persona: «Solo sé que Ricardo tiene un perro», hablando con Ricardo, aunque la sección 6 dice «Estoy hablando con Ricardo» | CP8 C | 2 de 3 en una repetición de cruces; aparece suelto en otras | ídem; la opción (a), recuerdos en segunda persona, no lo resolvió y se revirtió |
 | Rechazo de asistente no detectado: «Lo siento, pero no tengo manera de saber eso… no tengo acceso a información sobre tu vida» | CP8 C | 1 caso | ampliar los patrones de `refusal.py` si se repite |
 | La sección 6 muestra los temas normalizados, sin tildes («adopcion») | CP8 C | cosmético | si molesta, guardar un nombre para mostrar |
+| El largo de la respuesta no sigue la sección 7 («respondo corto»): mediana 27,5 palabras en calma frente a 27,0 bajo amenaza | CP9 C | 6 pares | aceptado (decisión del usuario); si molesta: tope de `max_tokens` según el estado o mover la sección 7 junto al mensaje |
+| La pizarra casi nunca desaloja: ~500 tokens usados (mediana) frente a 1.250–2.500 | CP9 C | 26 + 12 turnos | observar con más historia; recalibrar el presupuesto si se quiere que actúe antes |
 | Saturación del afecto con hostilidad sostenida: VAD clavado en −1 / 1 / 0 durante 6 de 7 turnos | CP5; evaluación parcial tras CP8 | sesión manual | **antes de CP11** (afecta la medición de vidas medias) |
 | Falsos positivos del appraisal: hostilidad ante temas hostiles o insultos a terceros; angustia ante «ADIOS!» | evaluación parcial tras CP8 | 3 + 1 casos en la sesión manual | contaminan el afecto y el `partner_model`; decidir en CP9–CP11 |
 | Sarcasmo sin marcas de burla no detectado («no me digas, eres una genio...») | evaluación parcial tras CP8 | 1 caso | observar |
