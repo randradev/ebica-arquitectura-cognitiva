@@ -108,6 +108,19 @@ class PeopleStore:
         )
         return EnsuredPerson(model=model_from_row(row), created=not existed)
 
+    async def open_commitments(self, entity_id: str, person_id: str) -> "list[dict]":  # `list` es un método de esta clase
+        """
+        Los compromisos abiertos que prometió una persona (CP10, `commitment_watch`),
+        del más reciente al más viejo: filas con `id`, `text` y `ts`.
+        """
+        rows = await self.graph.execute(
+            "MATCH (:Person {entity_id: $entity_id, id: $person_id})-[:PROMISED]->"
+            "(c:Commitment {entity_id: $entity_id, status: 'open'}) "
+            "RETURN c.id AS id, c.text AS text, c.ts AS ts ORDER BY c.ts DESC",
+            entity_id=entity_id, person_id=person_id,
+        )
+        return [{"id": row["id"], "text": row["text"], "ts": row["ts"].to_native()} for row in rows]
+
     async def create(self, entity_id: str, name: str) -> PartnerModel:
         """
         Crea una persona nueva con nombre, sin historia (§5.9, «persona nueva con nombre»).

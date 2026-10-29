@@ -2076,3 +2076,30 @@ Autorizada por el usuario junto con la explicación de las implicancias. En calm
 - Los mensajes cortos no cuentan como repetición; la ventana de la entidad es de 10 respuestas.
 - `run_agents` respeta el orden.
 - `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `370 passed` (348 + 22).
+
+---
+
+## 2026-10-28 · CP10 parte B — Compromisos en la memoria
+
+**Cambios**
+- `ebica/memory/episodes.py` (D1-73):
+  - funciones puras `commitment_key` (minúsculas, sin tildes ni puntuación) y `commitment_id` (estable por persona y promesa);
+  - `write_turn` crea los compromisos del appraisal **en la misma consulta** que el episodio: `Commitment` abierto (`text`, `key`, `status: open`, `ts`, `due: null`), `(:Person)-[:PROMISED]->` (si hay persona) y `(:Episode)-[:ABOUT]->`;
+  - una promesa repetida no se duplica: el episodio nuevo se enlaza a la existente (`MERGE` por id);
+  - `WrittenEpisode` y `memory.written` llevan los ids de los compromisos.
+- `ebica/memory/people.py`: `open_commitments(entidad, persona)` devuelve las promesas abiertas de esa persona, de la más reciente a la más vieja.
+- `ebica/memory/retrieval.py` (D1-74, §7.3):
+  - cada candidato sabe si es `ABOUT` de un compromiso abierto (`EXISTS` en la misma consulta);
+  - el término de compromisos vale `w_commit`, y el puntaje suma `0,1 · w_commit` (Calisto: +0,08);
+  - `retrieve(..., w_commit=)`.
+- **Error propio, corregido:** la anotación `-> list[dict]` dentro de `PeopleStore` falló, porque la clase tiene un método llamado `list` que tapa al de Python. Se usa una anotación entre comillas.
+
+**Pruebas** (`tests/test_commitments.py`, nuevo, 8: 3 unitarias y 5 de integración)
+- La clave y el id de un compromiso.
+- El término de §7.3 suma exactamente `0,1 · 0,8`.
+- «Mañana te cuento cómo me fue» crea el `Commitment` abierto con `PROMISED` y `ABOUT`.
+- La promesa repetida (escrita distinto) no se duplica.
+- Sin persona no hay `PROMISED`, y sin compromisos no se crea nada.
+- `open_commitments` trae solo las abiertas de esa persona; nada cruza entre entidades.
+- Con el mismo parecido, el episodio de la promesa gana en la recuperación.
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `378 passed` (370 + 8).

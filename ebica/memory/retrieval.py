@@ -7,7 +7,8 @@ Antes de responder, la entidad «se acuerda» de lo que viene al caso:
    episodios con la persona activa o con las personas conocidas que el
    mensaje nombra (el grafo, a un salto; CP8, D1-58).
 2. Puntaje de cada episodio (§7.3, D1-44): parecido, recencia, importancia,
-   congruencia con el ánimo y compromisos abiertos (0 hasta CP10).
+   congruencia con el ánimo y compromisos abiertos (CP10: el episodio es
+   `ABOUT` de un compromiso todavía abierto).
 3. Selección: MMR hasta k episodios (k según la apertura O y el ánimo, D1-47)
    y, aparte, hasta `FACTS_MAX` hechos solo por parecido (D1-45).
 4. Efecto: lo evocado sube su labilidad (D1-48), la marca que usará la
@@ -32,7 +33,8 @@ W_SIMILARITY = 0.5
 W_RECENCY = 0.15
 W_IMPORTANCE = 0.15
 W_MOOD = 0.1
-# Peso de los compromisos abiertos; el término vale 0 hasta CP10 (no hay `Commitment`).
+# Peso de los compromisos abiertos (§7.3): el término es W_COMMITMENT · w_commit
+# para un episodio sobre un compromiso abierto (Calisto: 0,1 · 0,8 = +0,08).
 W_COMMITMENT = 0.1
 # CONSTANTE: vida media de la recencia (D1-44). Un recuerdo de hace 3 días
 # conserva la mitad de su bono de recencia; los de la semilla (2025) casi nada.
@@ -128,6 +130,8 @@ class EpisodeCandidate:
     # (D1-56; mostrarlo en segunda persona se probó y se revirtió, CP8 C).
     person_id: str | None = None
     person_name: str | None = None
+    # True si el episodio es `ABOUT` de un compromiso abierto (CP10).
+    open_commitment: bool = False
 
 
 @dataclass
@@ -150,15 +154,20 @@ class ScoredEpisode:
             "id": c.id, "kind": c.kind, "sources": sorted(c.sources), "person_id": c.person_id,
             "similarity": round(self.similarity, 3), "recency": round(self.recency, 3),
             "importance": round(self.importance, 3), "mood": round(self.mood, 3),
-            "commitment": self.commitment, "total": round(self.total, 3),
+            "commitment": round(self.commitment, 3), "total": round(self.total, 3),
         }
 
 
-def score_episode(candidate: EpisodeCandidate, similarity: float, now: datetime, affect: VAD) -> ScoredEpisode:
-    """Puntaje de §7.3 con su desglose (D1-44). El término de compromisos vale 0 hasta CP10."""
+def score_episode(
+    candidate: EpisodeCandidate, similarity: float, now: datetime, affect: VAD, w_commit: float = 1.0
+) -> ScoredEpisode:
+    """
+    Puntaje de §7.3 con su desglose (D1-44). El término de compromisos vale
+    `w_commit` (§5.2, 0,5 + C) si el episodio trata de un compromiso abierto.
+    """
     rec = recency(candidate.ts, now)
     mood = mood_congruence(candidate.valence, affect.valence)
-    commitment = 0.0
+    commitment = w_commit if candidate.open_commitment else 0.0
     total = (
         W_SIMILARITY * similarity + W_RECENCY * rec + W_IMPORTANCE * candidate.importance
         + W_MOOD * mood + W_COMMITMENT * commitment
@@ -242,7 +251,8 @@ OPTIONAL MATCH (e)-[:INVOLVES]->(p:Person {entity_id: $entity_id})
 WITH e, head(collect(p)) AS p
 RETURN e.id AS id, e.kind AS kind, e.ts AS ts, e.text AS text, e.valence AS valence,
        e.arousal AS arousal, coalesce(e.importance, 0.0) AS importance, e.embedding AS embedding,
-       p.id AS person_id, p.name AS person_name
+       p.id AS person_id, p.name AS person_name,
+       EXISTS { (e)-[:ABOUT]->(:Commitment {entity_id: $entity_id, status: 'open'}) } AS open_commitment
 """
 
 _TOPIC_NEIGHBOURS = """
@@ -297,6 +307,7 @@ class MemoryRetriever:
         excluded_fact_ids: Sequence[str] = (),
         person_id: str | None = None,
         mentioned_names: Sequence[str] = (),
+        w_commit: float = 1.0,
         raise_lability: bool = True,
     ) -> RetrievalResult:
         """
@@ -308,6 +319,7 @@ class MemoryRetriever:
         `person_id` (la persona activa) y `mentioned_names` (los nombres de
         `mentioned_people` del appraisal) suman los episodios con esas
         personas (D1-58), sin bono en el puntaje: compiten igual que el resto.
+        `w_commit` (§5.2) pesa el término de compromisos abiertos.
         Con `raise_lability=False` no escribe nada (el benchmark lo usa para
         poder repetir la medición).
         """
@@ -335,8 +347,9 @@ class MemoryRetriever:
                 valence=row["valence"], arousal=row["arousal"], importance=row["importance"],
                 embedding=row["embedding"], sources=sources[row["id"]],
                 person_id=row["person_id"], person_name=row["person_name"],
+                open_commitment=bool(row["open_commitment"]),
             )
-            scored.append(score_episode(candidate, similarity, now, affect))
+            scored.append(score_episode(candidate, similarity, now, affect, w_commit))
         scored.sort(key=lambda item: item.total, reverse=True)
         k_eff = effective_k(k, affect)
         episodes = mmr(scored, k_eff, lambda_mmr)

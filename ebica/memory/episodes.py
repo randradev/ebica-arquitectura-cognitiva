@@ -9,12 +9,14 @@ Dos operaciones, las únicas que escriben en vigilia (§7.1):
   evocará) y su `Trace` (la huella cruda, que la entidad nunca consulta), con
   los enlaces `NEXT`, `DERIVED_FROM` y `ABOUT` hacia los `Topic`. Desde CP8,
   también `INVOLVES` y `SPOKEN_BY` hacia el `Person` de quien habló, cuyo modelo
-  se guarda en la misma transacción.
+  se guarda en la misma transacción. Desde CP10, los `Commitment` que detectó
+  el appraisal: `(:Person)-[:PROMISED]->(:Commitment)` y el episodio `ABOUT` de él.
 
 Los hechos no se crean en vigilia (salvo la semilla): si el usuario cuenta
 algo, la entidad lo recuerda a través del episodio hasta que el sueño de Fase 2
-lo semantice. Los `Commitment` llegan en CP10. Crear y leer las `Person` es
-tarea de `people.py` (CP8). Recuperar lo escrito es trabajo de CP7.
+lo semantice. Los `Commitment` sí se crean en vigilia (§7.1: una promesa debe
+poder recordarse antes del próximo sueño). Crear y leer las `Person` es tarea
+de `people.py` (CP8). Recuperar lo escrito es trabajo de CP7.
 """
 
 import hashlib
@@ -141,6 +143,25 @@ def normalize_topics(names: list[str]) -> list[str]:
     return result[:MAX_TOPICS_PER_EPISODE]
 
 
+def commitment_key(text: str) -> str:
+    """
+    Forma comparable de un compromiso (D1-73): minúsculas, sin tildes, sin
+    puntuación y con espacios simples. «Mañana te cuento cómo me fue.» y
+    «mañana te cuento como me fue» son la misma promesa.
+    """
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    plain = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    return " ".join("".join(char if char.isalnum() else " " for char in plain).split())
+
+
+def commitment_id(person_id: str | None, text: str) -> str:
+    """
+    Id estable de un compromiso: la misma promesa de la misma persona da el
+    mismo id, así que repetirla no la duplica (D1-73).
+    """
+    return f"cm-{content_hash(person_id or '-', commitment_key(text))[:12]}"
+
+
 def content_hash(*parts: object) -> str:
     """
     Huella del contenido de un nodo de la semilla (D1-39).
@@ -207,6 +228,8 @@ class WrittenEpisode:
     previous_episode_id: str | None
     embed_ms: float
     write_ms: float
+    # Ids de los compromisos del turno (creados o ya existentes), CP10.
+    commitments: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         """Versión JSON para el evento."""
@@ -214,6 +237,7 @@ class WrittenEpisode:
             "episode_id": self.episode_id, "trace_id": self.trace_id,
             "importance": round(self.importance, 3), "topics": self.topics,
             "new_topics": self.new_topics, "previous_episode_id": self.previous_episode_id,
+            "commitments": self.commitments,
             "embed_ms": round(self.embed_ms, 1), "write_ms": round(self.write_ms, 1),
         }
 
@@ -282,6 +306,13 @@ FOREACH (person IN CASE WHEN $person IS NULL THEN [] ELSE [$person] END |
     SET p += person.props
     CREATE (e)-[:INVOLVES]->(p)
     CREATE (t)-[:SPOKEN_BY]->(p))
+FOREACH (c IN $commitments |
+    MERGE (cm:Commitment {{entity_id: $entity_id, id: c.id}})
+    ON CREATE SET cm.text = c.text, cm.key = c.key, cm.status = 'open', cm.ts = $ts, cm.due = null
+    MERGE (e)-[:ABOUT]->(cm)
+    FOREACH (pid IN CASE WHEN $person IS NULL THEN [] ELSE [$person.id] END |
+        MERGE (owner:Person {{entity_id: $entity_id, id: pid}})
+        MERGE (owner)-[:PROMISED]->(cm)))
 RETURN previous.id AS previous_id
 """
 
@@ -404,6 +435,12 @@ class MemoryWriter:
         enlaza con `INVOLVES` y la huella con `SPOKEN_BY` (en Fase 1 coinciden;
         en Fase 2, con el modo Desconocido, pueden diferir), y el `Person` se
         guarda en la misma transacción (D1-54). Sin `person`, nada de eso.
+
+        Los compromisos del appraisal se crean en la misma transacción (CP10,
+        D1-73): abiertos, con `PROMISED` desde la persona (sin persona, sin ese
+        enlace) y el episodio `ABOUT` de cada uno. Una promesa repetida (mismo
+        texto normalizado, misma persona) no se duplica: el episodio nuevo se
+        enlaza a la que ya existe.
         """
         # Importación diferida: `people` importa `social.partner`, que importa este módulo.
         from ebica.memory.people import person_properties
@@ -428,6 +465,12 @@ class MemoryWriter:
         topic_vectors = dict(zip(new_topics, vectors[1:]))
 
         importance = episode_importance(appraisal)
+        person_id = person.id if person is not None else None
+        commitments = []
+        for text_ in appraisal.commitments:
+            if commitment_key(text_) and commitment_id(person_id, text_) not in {c["id"] for c in commitments}:
+                commitments.append({"id": commitment_id(person_id, text_), "text": text_.strip(),
+                                    "key": commitment_key(text_)})
         started = time.perf_counter()
         rows = await self.graph.execute(
             _WRITE_TURN, entity_id=entity_id, episode_id=episode_id, trace_id=_trace_id(episode_id),
@@ -440,10 +483,11 @@ class MemoryWriter:
             route="impulsive" if impulsive else "normal",
             topics=[{"name": topic, "embedding": topic_vectors.get(topic)} for topic in topics],
             person={"id": person.id, "props": person_properties(person)} if person is not None else None,
+            commitments=commitments,
         )
         write_ms = (time.perf_counter() - started) * 1000
         return WrittenEpisode(
             episode_id=episode_id, trace_id=_trace_id(episode_id), importance=importance,
             topics=topics, new_topics=new_topics, previous_episode_id=rows[0]["previous_id"],
-            embed_ms=embed_ms, write_ms=write_ms,
+            embed_ms=embed_ms, write_ms=write_ms, commitments=[c["id"] for c in commitments],
         )

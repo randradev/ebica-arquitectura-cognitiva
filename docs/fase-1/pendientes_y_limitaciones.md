@@ -17,7 +17,7 @@
 | Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP9–CP11** | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
 | ~~Tope de 1.200 tokens de las secciones 4–5~~ | D1-50 (CP7) | **CP9** | **Cerrado 2026-10-28** (CP9 B): lo reemplaza el presupuesto de la WorkingMemory. |
 | ~~Asteriscos y acotaciones~~ | Fase 0, pendiente 6 | **CP9** | **Cerrado 2026-10-28** (D1-65): 1 de 461 respuestas; sin filtro. |
-| `Commitment` en vigilia y término de compromisos del puntaje (vale 0 hoy) | §7.1, D1-44 | **CP10** | |
+| ~~`Commitment` en vigilia y término de compromisos del puntaje~~ | §7.1, D1-44 | **CP10** | **Cerrado 2026-10-28** (CP10 B). Limitación: todo compromiso se guarda como `PROMISED` por la persona (D1-73); sin cierre automático (D1-74). |
 | Medición de la vida media con los drives activos | CP4 | antes de **CP11** | 50,4 min medidos frente a 42,5 de `h_neg`. Opciones: equilibrio efectivo o drives estables. |
 
 ## 2. Limitaciones aceptadas (se vuelven a medir, no se corrigen ahora)
