@@ -14,7 +14,7 @@
 | Importancia 0 para lo que el usuario cuenta de sí | D1-43 (CP7 A) | **CP11** | 2026-10-28, D1-59 (a): se mantiene. Sondeo con +30 días: 10/10 igual, pero no discrimina (un solo episodio pasa el umbral por pregunta). El riesgo es una memoria grande con más de k candidatos; se vuelve a mirar con varios días de uso. |
 | ~~Episodios reales de Calisto sin `INVOLVES`~~ | CP8 | **CP8 D** | **Cerrado 2026-10-28**: 39 de 39 migrados; respaldo en `entities/calisto/respaldos/antes_cp8.json`. |
 | Política ante textos largos | CP5 | abierta | Un mensaje que no cabe emite `wm.overflow` (CP9 B), pero no se recorta. ~~D1-8 (b), resumen con LLM~~: **cerrado 2026-10-28**, no hace falta (0 desalojos en calma). |
-| Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP10b** (plan propuesto) | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
+| Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP10b** (medido; falta cerrar) | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
 | ~~Tope de 1.200 tokens de las secciones 4–5~~ | D1-50 (CP7) | **CP9** | **Cerrado 2026-10-28** (CP9 B): lo reemplaza el presupuesto de la WorkingMemory. |
 | ~~Asteriscos y acotaciones~~ | Fase 0, pendiente 6 | **CP9** | **Cerrado 2026-10-28** (D1-65): 1 de 461 respuestas; sin filtro. |
 | ~~`Commitment` en vigilia y término de compromisos del puntaje~~ | §7.1, D1-44 | **CP10** | **Cerrado 2026-10-28** (CP10 B). Limitación: todo compromiso se guarda como `PROMISED` por la persona (D1-73); sin cierre automático (D1-74). |
@@ -63,3 +63,11 @@
 - **bge-m3 consulta HuggingFace Hub al cargar** (aviso en el log). Pendiente de CP2, no urgente: fijar la revisión convertida o exigir `safetensors`, para cargar sin red y poder borrar el `.bin`.
 - **El índice vectorial es compartido por todas las entidades.** Desde CP7, `vector_search` tiene un respaldo exacto cuando otra entidad acapara a los vecinos (D1-11).
 - **La memoria real de Calisto** vive en Neo4j (`entity_id: calisto`); desde CP8 D tiene el `Person` de Ricardo y sus 39 episodios enlazados. Las pruebas en vivo usan una copia de su config con otro id y borran sus nodos al terminar. Los diálogos sobre la memoria («¿qué te dije…?») también quedan como episodios y compiten después con los recuerdos reales.
+
+## 4. Decisiones abiertas al cierre del 2026-10-28
+
+- **CP10b, contexto en el appraisal:** no cumple el criterio (`test` 2/7 → 3/7). Ayuda con el sarcasmo; no con el enojo hacia un tercero (ese arreglo exige tocar el prompt de sistema y volver a medir el benchmark congelado). Recomendación: mantenerlo.
+- **D1-81:** quedan saltos de más de 0,5 (máximo 0,66 en la reproducción; 0,50–0,55 en vivo). Recomendación: no recalibrar ahora y revisarlo en CP11.
+- **La alerta satura** con hostilidad sostenida (15–16 de 21 turnos en vivo). Sin criterio en CP10b; mirar en CP11.
+- **Puente de Telegram:** sin probar contra Telegram. Recordar que `EBICA_ENTITIES_DIR` debe apuntar a `entities` (o no estar definida) en la terminal del servidor.
+

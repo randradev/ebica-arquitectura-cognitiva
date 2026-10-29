@@ -2268,3 +2268,101 @@ Autorizada por el usuario (los casos de contexto quedaron aprobados sin cambios)
 - `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `400 passed` (386 + 14). Las vidas medias de CP4 siguen pasando.
 
 **D1-81** (recalibrar las escalas de D1-23) se decide con la medición de la parte C.
+
+---
+
+## 2026-10-28 · CP10b parte C — Medición
+
+**1. Reproducción sin el LLM** (los mismos appraisals registrados; `reproducir_afecto.py` con cada variante del motor)
+
+| Variante | Tope de valencia | Tope de alerta | Rebotes | Mayor salto | Dirección invertida en turnos coherentes |
+|---|---|---|---|---|---|
+| Motor CP10 | 8 | 13 | 1 | 0,75 | — |
+| Solo saturación suave | 2 | 9 | 1 | 0,75 | ninguna |
+| Solo zona muerta | 9 | 13 | 0 | 0,77 | ninguna |
+| Solo confianza | 8 | 13 | 1 | 0,63 | ninguna |
+| **CP10b completo** | **2** ✔ | 9 | **0** ✔ | 0,66 | **ninguna** ✔ |
+
+- Sesión manual (21 turnos). **Los tres criterios de D1-82 se cumplen.** La saturación suave baja el tope; la zona muerta, el rebote; la confianza, el tamaño de los saltos. Sola, la zona muerta empeora el tope (le quita el contagio positivo); combinada, no.
+- `cp8-x2` (29 turnos, sin hostilidad sostenida): 0 topes en todas las variantes; con CP10b completo, mayor salto 0,57 → 0,44.
+- **D1-81:** siguen 2 saltos de más de 0,5 (+0,61, el sarcasmo mal leído del turno 8, y +0,65, «Ana quería conocerte con emoción» desde −0,94). Ver la decisión pendiente.
+
+**2. Appraisal con contexto** (`benchmark_appraisal_contexto.py`, 3 repeticiones)
+
+| Split | Sin contexto (A) | Con contexto |
+|---|---|---|
+| `dev`, contexto / control | 1/4 · 2/2 | **3/4 · 2/2** |
+| `test`, contexto / control (medido una vez) | 2/7 · 3/3 | **3/7 · 3/3** |
+
+- **Ajuste con `dev`, revertido:** una frase extra («la hostilidad es solo la dirigida a Calisto; enojarse con otra persona… no es hostilidad») no corrigió d-retarla y volvió inestable d-adios (2/3). Se volvió a la plantilla sin ella antes de medir `test`.
+- **`test`: el criterio de D1-82 no se cumple.** De los 5 casos que fallaban sin contexto, solo «Claro, porque eres taaan talentosa» acierta con contexto (la meta era 4). Los controles quedan 3/3.
+  - **Lo que mejora: el sarcasmo que depende del turno anterior:** d-genio-pelea pasa de V +0,6 a −0,9; t-talentosa, de V +0,6 a −0,4/−0,9.
+  - **Lo que no: el enojo con un tercero** sigue leyéndose como hostilidad hacia Calisto: «¿Quién se cree para hablarte así?» H 0,8–0,9, «Es un imbécil» (el jefe) H 0,9, «¿Qué más te dijo? Necesito saberlo para retarla» H 0,8.
+  - **Lo que empeora:** el halago sincero «No me digas, eres una genio...», después de una buena noticia, ahora se lee como sarcasmo (H 0,4–0,6 → 0,7–0,8; fallaba igual antes).
+- **Benchmark congelado del appraisal (regresión):** no se volvió a correr. Sin contexto, el mensaje es idéntico byte a byte al de antes (lo verifica una prueba); repetirlo solo mediría el ruido del modelo.
+
+**3. La sesión manual repetida en vivo** (`scripts/repetir_sesion_vivo.py`, nuevo: los mismos mensajes y cambios de persona, con appraisals y respuestas nuevos; entidades `cp10b-s1` y `cp10b-s2`)
+
+| | Original (motor CP10) | Rep. 1 (CP10b) | Rep. 2 (CP10b) |
+|---|---|---|---|
+| Turnos en el tope de valencia | 8 | 5 | 5 |
+| Turnos en el tope de alerta | 13 | 15 | 16 |
+| Rebotes | 1 | 0 | 0 |
+| Mayor salto | 0,75 | 0,55 | 0,50 |
+
+- Los 5 turnos en el tope son los 5 ataques seguidos de Ana (turnos 7–11). Ahora incluyen «eres una genio...», que **el contexto leyó bien como sarcasmo** (valencia ajena −0,8/−0,9; antes +0,6, la mayor subida falsa de la sesión). Con hostilidad sostenida, llegar al fondo es lo esperable; la diferencia es que ahora llega más despacio.
+- **Coherencia, revisión manual:**
+  - mejora en el turno 8 (sarcasmo) y en el 16 («qué idiota es Ana… yo me haré cargo»: −0,37 → −0,03/−0,06);
+  - nuevo error en el turno 2 («Quien te preguntó tanto detalle?», tras la presentación de Calisto): ahora se lee como positivo (V +0,6/+0,7) y sube el ánimo +0,10;
+  - «ADIOS!» sigue bajando el ánimo (−0,4/−0,5).
+- **La alerta sigue saturando** (15–16 turnos): con una vida media de 10 minutos y un impulso por mensaje hostil, la saturación suave la frena pero no la saca del tope en una conversación así. D1-82 no pone un criterio para la alerta, y CP11 mide vidas medias de la valencia.
+
+**Limpieza:** servidor detenido; nodos de `cp10b-s1` y `cp10b-s2` borrados (se guardaron sus eventos en el scratchpad); carpeta borrada. Neo4j conserva solo `calisto` (202 nodos). El puerto 8011 quedó libre.
+
+**Pendiente, decisiones del usuario:**
+- el criterio de contexto, que no se cumple (¿se mantiene el contexto?);
+- D1-81 (saltos de más de 0,5).
+
+---
+
+## 2026-10-28 · Utilidad fuera del plan: puente de Telegram
+
+- **Pedido del usuario:** hablarle a Calisto desde el celular durante la jornada. Es una utilidad, no un mecanismo de EBICA, y queda fuera del plan de Fase 1.
+- `scripts/telegram_bridge.py` (nuevo):
+  - consulta a Telegram por mensajes nuevos (*long polling*: no abre puertos en el PC), los reenvía a `/ws/chat` del servidor local y devuelve la respuesta;
+  - solo atiende el chat de `TELEGRAM_ALLOWED_CHAT_ID`; los demás mensajes se ignoran y su id se muestra en la terminal;
+  - carga la entidad si no está activa;
+  - reintenta si se cae la red;
+  - no usa dependencias nuevas (`httpx`, `websockets`).
+- Los mensajes hablan como la persona activa, por defecto el `primary`. Los turnos van por el mismo camino que la consola: appraisal, memoria, pizarra y micro-agentes.
+- **Privacidad:** los mensajes pasan por los servidores de Telegram (§13.3 pide que todo corra en local; el usuario lo pidió explícitamente).
+- `.env.example`: `TELEGRAM_BOT_TOKEN` y `TELEGRAM_ALLOWED_CHAT_ID`.
+- **Validación:** compila. **No se probó contra Telegram:** falta el token del usuario.
+- **Pendientes de CP10b sin decidir:** mantener el contexto del appraisal (opción a, recomendada) y D1-81 (no recalibrar, recomendado).
+
+---
+
+## 2026-10-28 · Cierre de sesión: dónde quedamos
+
+**Rama:** `f1-memoria-afecto`. Lo que quede sin commit, lo confirma el usuario.
+
+**Completado en esta sesión**
+- **CP8 completo:** `Person`, `PartnerModel`, `INVOLVES`/`SPOKEN_BY`, hilo por persona, sección 6, selector y panel de Teoría de la Mente; migración de la memoria real de Calisto (39 episodios enlazados a Ricardo).
+  - Apropiaciones 8/20 → 3/20; atribuciones 2/8 → 8/8; 1 cruce de 12 (limitación aceptada).
+- **Evaluación parcial** (`evaluacion_parcial_cp8.md`) con el análisis de la valencia.
+- **CP9 completo:** WorkingMemory (presupuesto según la alerta, saliencia, desalojo) y sección 7. El largo según el estado no se cumple con `llama3.1` (aceptado).
+- **CP10 completo:** cinco micro-agentes, `Commitment` en vigilia con contexto y el término de §7.3.
+- **CP10b, partes A–C medidas:**
+  - saturación suave y empatía con zona muerta y confianza: **cumplen** (tope de valencia 8 → 2, rebotes 1 → 0);
+  - contexto en el appraisal: **no cumple el criterio** (`test` 2/7 → 3/7; ayuda con el sarcasmo, no con el enojo hacia un tercero).
+- **Utilidad:** puente de Telegram (`scripts/telegram_bridge.py`). El usuario estaba levantándolo; el 404 era `EBICA_ENTITIES_DIR` todavía apuntando a la carpeta temporal en esa terminal.
+- Decisiones confirmadas: **D1-1 a D1-82**, salvo lo pendiente abajo. Pruebas: `400 passed`.
+
+**Pendiente para retomar**
+1. **Cerrar CP10b**, decidiendo:
+   - mantener el contexto del appraisal (recomendado) o apagarlo (`APPRAISAL_CONTEXT`);
+   - D1-81 (recomendado: no recalibrar ahora).
+2. Verificar que el puente de Telegram funciona (prueba manual del usuario).
+3. **Plan de CP11** (validación de la fase), incluido el hallazgo de CP4 sobre las vidas medias con los drives activos.
+
+**Para retomar:** leer `CLAUDE.md`; `docs/fase-1/PLAN.md` (estado, CP10b y CP11); este `REPORTE.md` desde «Plan de CP10b»; `docs/fase-1/pendientes_y_limitaciones.md`; y `docs/fase-1/evaluacion_parcial_cp8.md` §7.
