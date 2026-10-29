@@ -1933,3 +1933,36 @@ El usuario hizo commit de la evaluación parcial (`0626409`) antes de esta entra
 - `tests/test_working_memory.py` (nuevo, 11): presupuesto en 5 alertas, relevancia por antigüedad, lo cargado gana a lo neutro, desalojo de lo menos saliente, sin presión no se desaloja nada y se conserva el orden, un ítem corto llena el hueco, el evento sin texto.
 - `tests/test_memory_episodes.py`: 3 casos más de normalización («Adiós», «compás», «teléfonos»).
 - `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `340 passed` (326 + 14).
+
+---
+
+## 2026-10-28 · CP9 parte B — La pizarra en el turno, la sección 7 y la consola
+
+Autorizada por el usuario junto con la explicación de las implicancias. En calma entra lo mismo que antes (~1.550 tokens variables caben en 2.500). Bajo amenaza, el contexto se estrecha y sale lo menos saliente. El cambio visible es la sección 7. No se espera más asertividad ni más exactitud: la pizarra decide qué ocupa la atención.
+
+**Cambios**
+- `ebica/core/orchestrator.py`:
+  - `_update_workspace`: en cada turno normal arma la pizarra con los intercambios del hilo salvo el último (relevancia 0,9^edad), los recuerdos (puntaje de §7.3 y valencia) y los hechos (coseno). Cada ítem se mide con el texto que iría al prompt. Elige con el presupuesto según la alerta y emite `wm.updated` (y `wm.evicted` si algo no cupo);
+  - la cadena de eventos queda `… → memory.retrieved → wm.updated → llm.request`;
+  - el prompt recibe solo lo que entró, más lo fijo de D1-61: el último intercambio siempre va;
+  - `_check_context` emite `wm.overflow` si el prompt estimado supera 8.192 − `max_tokens`. No recorta: la política ante textos largos sigue pendiente, pero lo que Ollama truncaría en silencio queda visible;
+  - `turn.completed` agrega `workspace` (presupuesto, usado, ítems y desalojados);
+  - la ruta impulsiva no usa la pizarra.
+- `ebica/llm/prompt_assembler.py`:
+  - **se elimina el tope de 1.200 tokens de D1-50**;
+  - `memory_line` y `fact_line` pasan a ser públicas (la pizarra mide con ellas);
+  - `describe_expression` arma la sección 7 «Cómo expresarme» (D1-64): bajo amenaza, «Respondo corto, una o dos frases; no me extiendo.»; de buen ánimo, «Me puedo extender un poco…»; en otro caso, «Respondo con naturalidad, en pocas frases.»; con dominancia baja se agrega «Hablo con cautela.». Va al final del sistema.
+- `console/src/TurnPanel.tsx`: bloque «Pizarra» (tokens usados de cuántos, ítems y desalojados; el detalle al pasar el mouse).
+
+**Pruebas**
+- `tests/test_workspace_turn.py` (nuevo, 8):
+  - en calma entran los 8 recuerdos de prueba; con alerta 1,0 entran menos, aparece `wm.evicted`, y el más relevante y el doloroso sobreviven;
+  - con presupuesto 0 sale todo lo desalojable, pero no quién soy, la sección 7, el último intercambio ni el mensaje;
+  - la sección 7, en 4 estados, sin números y al final del sistema;
+  - `wm.overflow` ante un mensaje de 6.000 palabras, y nada en un turno normal.
+- `tests/test_turn.py`: 3 pruebas de la cadena de eventos actualizadas (ahora pasan por `wm.updated`).
+- `tests/test_retrieval.py`: la prueba del tope de D1-50 se reemplaza por una que comprueba que el ensamblador ya no descarta nada.
+- `.venv/Scripts/python.exe -m pytest -q -W error::FutureWarning` → `348 passed` (340 + 8).
+- Consola: `npx tsc -b` → 0; `npx oxlint` → 0. No se miró en el navegador.
+
+**Pendiente:** parte C (casos de los dos estados opuestos, escritos primero y revisados por el usuario).

@@ -13,10 +13,10 @@
 | ~~**Confusión de la fuente**~~ | CP7 C | **CP8** | **Cerrado 2026-10-28** con mejora parcial: 8/20 → 3/20 apropiaciones. Lo residual pasa a limitaciones (sección 2). |
 | Importancia 0 para lo que el usuario cuenta de sí | D1-43 (CP7 A) | **CP11** | 2026-10-28, D1-59 (a): se mantiene. Sondeo con +30 días: 10/10 igual, pero no discrimina (un solo episodio pasa el umbral por pregunta). El riesgo es una memoria grande con más de k candidatos; se vuelve a mirar con varios días de uso. |
 | ~~Episodios reales de Calisto sin `INVOLVES`~~ | CP8 | **CP8 D** | **Cerrado 2026-10-28**: 39 de 39 migrados; respaldo en `entities/calisto/respaldos/antes_cp8.json`. |
-| Política ante textos largos y resumen continuo | CP5 / D1-8 | antes de **CP9** | D1-8 (b), resumen con LLM, solo si los recuerdos no caben en el presupuesto. |
+| Política ante textos largos y resumen continuo | CP5 / D1-8 | **CP9 C** | Un mensaje que no cabe emite `wm.overflow` (CP9 B) pero no se recorta. D1-8 (b) se decide con la medición de CP9 C (D1-66). |
 | Valencia: appraisal sin contexto, impulsos grandes (D1-23) y rebote desde el tope | evaluación parcial tras CP8, §7 | **CP9–CP11** | Opciones: último intercambio en el appraisal (implica volver a medir su benchmark), saturación suave, empatía moderada por el `partner_model`, recalibrar D1-23. Decisión del usuario: más adelante. |
-| Tope de 1.200 tokens de las secciones 4–5 | D1-50 (CP7) | **CP9** | Provisional; lo reemplaza la WorkingMemory. |
-| Asteriscos y acotaciones | Fase 0, pendiente 6 | **CP9** | Medir su frecuencia; filtro solo si persisten. |
+| ~~Tope de 1.200 tokens de las secciones 4–5~~ | D1-50 (CP7) | **CP9** | **Cerrado 2026-10-28** (CP9 B): lo reemplaza el presupuesto de la WorkingMemory. |
+| ~~Asteriscos y acotaciones~~ | Fase 0, pendiente 6 | **CP9** | **Cerrado 2026-10-28** (D1-65): 1 de 461 respuestas; sin filtro. |
 | `Commitment` en vigilia y término de compromisos del puntaje (vale 0 hoy) | §7.1, D1-44 | **CP10** | |
 | Medición de la vida media con los drives activos | CP4 | antes de **CP11** | 50,4 min medidos frente a 42,5 de `h_neg`. Opciones: equilibrio efectivo o drives estables. |
 

@@ -8,8 +8,10 @@ Secciones de Fase 1 hasta CP5:
    tono en palabras (CP7, D1-50).
 5. «Lo que sé»: los hechos recuperados (CP7, D1-45).
 6. «Cómo veo a esta persona»: el PartnerModel de quien habla, en palabras (CP8).
+7. «Cómo expresarme»: largo y tono según el estado, en palabras (CP9, D1-64).
 8. La conversación reciente, como mensajes alternados (CP5, D1-24).
-«Cómo expresarme» (7) llega en CP9.
+Qué recuerdos, hechos e intercambios entran lo decide la WorkingMemory (CP9,
+§5.6); aquí solo se dice en palabras lo que ella dejó pasar.
 La respuesta impulsiva de la vía baja (CP5 B2) usa una versión mínima: 1, 2,
 el nombre de quien habla y el último intercambio.
 
@@ -27,7 +29,7 @@ from ebica.affect.drives import DRIVE_THRESHOLD
 from ebica.affect.vad import VAD
 from ebica.core.state import ConversationTurn, EntityConfig
 from ebica.llm.tokens import TOKENS_PER_WORD, estimate_tokens  # noqa: F401 — se reexportan
-from ebica.memory.retrieval import RetrievalResult, ScoredEpisode
+from ebica.memory.retrieval import RetrievalResult, RetrievedFact, ScoredEpisode
 from ebica.social.partner import PartnerModel, PartnerNow
 
 # Encabezado de la biografía esencial (hechos con `core: true`, D1-34).
@@ -73,9 +75,6 @@ FACTS_HEADER = "Lo que sé:"
 # CONSTANTE: largo máximo de un recuerdo de diálogo en el prompt (D1-50). Los
 # de la semilla van completos: están escritos a mano y son parte de su historia.
 DIALOGUE_MEMORY_MAX_CHARS = 450
-# CONSTANTE: tope provisional de tokens de las secciones 4 y 5 juntas (D1-50),
-# hasta que la WorkingMemory de CP9 administre el presupuesto completo.
-MEMORY_SECTIONS_MAX_TOKENS = 1200
 # CONSTANTES: tono de un recuerdo según la valencia con que se guardó
 # (límite superior, palabras). Cerca de 0 no se dice nada.
 MEMORY_TONE = (
@@ -89,6 +88,13 @@ MONTHS = (
     "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
     "septiembre", "octubre", "noviembre", "diciembre",
 )
+# Encabezado de la sección 7 (CP9).
+EXPRESSION_HEADER = "Cómo expresarme:"
+# CONSTANTES: cuándo cambia la forma de responder (D1-64, §5.4). Bajo amenaza
+# (alerta alta y valencia negativa) se responde corto; de buen ánimo, con más
+# soltura; con poca sensación de control, con cautela.
+EXPRESSION_THREAT_AROUSAL, EXPRESSION_THREAT_VALENCE = 0.6, -0.1
+EXPRESSION_GOOD_VALENCE, EXPRESSION_LOW_DOMINANCE = 0.3, 0.25
 # Encabezado de la sección 6 (CP8).
 PARTNER_HEADER = "Cómo veo a esta persona:"
 # CONSTANTES: cuánto conoce a la persona, por número de intercambios
@@ -217,8 +223,13 @@ def describe_tone(valence: float) -> str:
     return next(words for limit, words in MEMORY_TONE if valence < limit)
 
 
-def _memory_line(item: ScoredEpisode, now: datetime) -> str:
-    """Una línea de la sección 4: cuándo, qué y con qué tono."""
+def memory_line(item: ScoredEpisode, now: datetime) -> str:
+    """
+    Una línea de la sección 4: cuándo, qué y con qué tono.
+
+    Es pública porque la WorkingMemory mide cada recuerdo con este mismo texto:
+    lo que cuenta para el presupuesto es lo que de verdad va al prompt.
+    """
     candidate = item.candidate
     text = " ".join(candidate.text.split())
     if candidate.kind != "seed" and len(text) > DIALOGUE_MEMORY_MAX_CHARS:
@@ -227,35 +238,48 @@ def _memory_line(item: ScoredEpisode, now: datetime) -> str:
     return f"- {describe_when(candidate.ts, now).capitalize()}: {text}" + (f" ({tone})" if tone else "")
 
 
+def fact_line(fact: RetrievedFact) -> str:
+    """Una línea de la sección 5 (la WorkingMemory la mide con este texto)."""
+    return f"- {fact.text}"
+
+
 def build_memory_sections(retrieval: RetrievalResult | None, now: datetime) -> str:
     """
-    Secciones 4 «Lo que me viene a la mente» y 5 «Lo que sé» (D1-50).
+    Secciones 4 «Lo que me viene a la mente» y 5 «Lo que sé».
 
-    Entran primero los hechos (cortos y precisos) y después los recuerdos en
-    el orden de MMR, mientras quepan en `MEMORY_SECTIONS_MAX_TOKENS`; lo que no
-    cabe se descarta desde el final (lo menos relevante). Devuelve "" si no
-    hay nada que decir.
+    Dice todo lo que trae `retrieval`, en su orden: qué entra lo decidió antes
+    la WorkingMemory (CP9), que reemplaza el tope provisional de D1-50. Devuelve
+    "" si no hay nada que decir.
     """
     if retrieval is None:
         return ""
-    budget = MEMORY_SECTIONS_MAX_TOKENS
-    facts, memories = [], []
-    for fact in retrieval.facts:
-        line = f"- {fact.text}"
-        if estimate_tokens(line) <= budget:
-            facts.append(line)
-            budget -= estimate_tokens(line)
-    for item in retrieval.episodes:
-        line = _memory_line(item, now)
-        if estimate_tokens(line) <= budget:
-            memories.append(line)
-            budget -= estimate_tokens(line)
+    facts = [fact_line(fact) for fact in retrieval.facts]
+    memories = [memory_line(item, now) for item in retrieval.episodes]
     sections = []
     if memories:
         sections.append("\n".join([MEMORIES_HEADER, MEMORIES_NOTE, *memories]))
     if facts:
         sections.append("\n".join([FACTS_HEADER, *facts]))
     return "\n\n".join(sections)
+
+
+def describe_expression(affect: VAD) -> str:
+    """
+    Sección 7 «Cómo expresarme» (D1-64, §5.4): largo y tono según el estado, sin números.
+
+    Bajo amenaza, respuestas cortas; de buen ánimo, más soltura; con poca
+    sensación de control, cautela. En otro caso, pocas frases (la mediana
+    medida en CP8 fue de 44 palabras). El tope duro sigue siendo `max_tokens`.
+    """
+    if affect.arousal >= EXPRESSION_THREAT_AROUSAL and affect.valence < EXPRESSION_THREAT_VALENCE:
+        text = "Respondo corto, una o dos frases; no me extiendo."
+    elif affect.valence > EXPRESSION_GOOD_VALENCE:
+        text = "Me puedo extender un poco y asociar ideas, sin irme por las ramas."
+    else:
+        text = "Respondo con naturalidad, en pocas frases."
+    if affect.dominance < EXPRESSION_LOW_DOMINANCE:
+        text += " Hablo con cautela."
+    return text
 
 
 def _band(value: float, bands: tuple) -> str:
@@ -314,14 +338,15 @@ def build_dialogue_messages(
     recent_turns: list[ConversationTurn] | tuple = (),
     memories: str = "",
     partner: str = "",
+    expression: str = "",
 ) -> list[dict[str, str]]:
     """
     Arma los mensajes para el preset `dialogue`.
 
     Sistema (identidad; si hay afecto, cómo se siente; si hay recuerdos, las
-    secciones 4–5; si hay persona, la sección 6) → los intercambios recientes
-    como pares user/assistant → el mensaje actual. Sin afecto ni historial
-    produce el prompt de Fase 0.
+    secciones 4–5; si hay persona, la sección 6; si hay indicación de forma,
+    la 7) → los intercambios recientes como pares user/assistant → el mensaje
+    actual. Sin afecto ni historial produce el prompt de Fase 0.
     """
     system = build_system_prompt(config)
     if affect is not None:
@@ -330,6 +355,8 @@ def build_dialogue_messages(
         system += f"\n\n{memories}"
     if partner:
         system += f"\n\n{PARTNER_HEADER}\n{partner}"
+    if expression:
+        system += f"\n\n{EXPRESSION_HEADER}\n{expression}"
     messages = [{"role": "system", "content": system}]
     for turn in recent_turns:
         messages.append({"role": "user", "content": turn.user})

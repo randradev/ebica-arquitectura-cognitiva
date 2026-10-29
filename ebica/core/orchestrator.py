@@ -17,8 +17,10 @@ Toda llamada al LLM pasa por la cola de GPU. Antes de responder, la vía alta
 recupera recuerdos (CP7, §7.3); tras responder, el turno se escribe en la
 memoria episódica (CP6, D1-37). Desde CP8, cada turno es de una persona: el
 orquestador mantiene a la persona activa y su modelo (§5.9), y el turno lo
-percibe (`partner_now`), lo usa en el prompt (sección 6) y lo actualiza. La
-máquina de modos y el reloj simulado llegan en Fase 2. El reloj solo es
+percibe (`partner_now`), lo usa en el prompt (sección 6) y lo actualiza.
+Desde CP9, antes de responder, la WorkingMemory (§5.6) decide qué
+intercambios, recuerdos y hechos entran al prompt, con un presupuesto que la
+alerta reduce. La máquina de modos y el reloj simulado llegan en Fase 2. El reloj solo es
 inyectable (`now`), para probar con tiempo falso.
 """
 
@@ -46,12 +48,15 @@ from ebica.core.gpu_queue import GpuPriority, GpuQueue
 from ebica.core.state import ConversationTurn, EntityState, PartnerState
 from ebica.entities.manager import Entity
 from ebica.identity.traits import derive_parameters
-from ebica.llm.client import LLMClient, LLMError, LLMResult
+from ebica.llm.client import PRESETS, LLMClient, LLMError, LLMResult
 from ebica.llm.prompt_assembler import (
     build_dialogue_messages,
     build_impulsive_messages,
     build_memory_sections,
+    describe_expression,
     describe_partner,
+    fact_line,
+    memory_line,
 )
 from ebica.llm.refusal import BUFFER_CHARS, choose_prefix, detect_refusal, join_prefill, with_prefill
 from ebica.memory.episodes import MemoryWriter, normalize_topics
@@ -65,12 +70,25 @@ from ebica.perception.appraisal import (
     neutral_appraisal,
     parse_appraisal,
 )
+from ebica.llm.tokens import estimate_tokens
 from ebica.social.partner import PartnerModel, PartnerNow, update_partner_model
+from ebica.workspace.working_memory import (
+    Selection,
+    WorkspaceItem,
+    select,
+    turn_relevance,
+    workspace_budget,
+)
 
 # CONSTANTE: intercambios recientes que entran al prompt (D1-24).
 RECENT_TURNS = 6
 # Esquema JSON que restringe la salida del appraisal (D1-19); se calcula una vez.
 APPRAISAL_SCHEMA = appraisal_json_schema()
+
+# CONSTANTE: contexto del modelo (`num_ctx` del Modelfile, D1-2). Ollama trunca
+# en silencio un prompt más largo (medido en CP1): si el prompt estimado supera
+# este valor menos el `max_tokens` del preset, se emite `wm.overflow`.
+CONTEXT_TOKENS = 8192
 
 # CONSTANTE: intervalo del bucle rápido (§6.1, ≈1 Hz).
 TICK_SECONDS = 1.0
@@ -456,6 +474,8 @@ class Orchestrator:
                     # Lo recordado (episodios, hechos, desglose) o el error; None
                     # sin memoria o en la ruta impulsiva, que no recupera (§5.4).
                     "retrieval": summary.get("retrieval"),
+                    # Lo que entró a la pizarra (CP9); None en la ruta impulsiva, que no la usa.
+                    "workspace": summary.get("workspace"),
                     # None si la memoria está desactivada; si no, lo escrito o el error.
                     "memory": memory_event.payload if memory_event else None,
                     # Quién habló y cómo se le percibió (CP8); None sin personas.
@@ -508,15 +528,31 @@ class Orchestrator:
             describe_partner(self.partner, PartnerNow.from_appraisal(appraisal), self.now())
             if self.partner else ""
         )
-        messages = build_dialogue_messages(
-            self.entity.config, text, state.affect, state.drives, self._partner_turns(),
-            memories=build_memory_sections(retrieval, self.now()), partner=partner,
+        recent = self._partner_turns()
+        selection, workspace_event = self._update_workspace(
+            recent, retrieval, cause_id=retrieval_event.id if retrieval_event else affect_event.id
         )
+        summary["workspace"] = {
+            "budget": selection.budget, "used": selection.used, "kept": len(selection.kept),
+            "evicted": [item.as_dict() for item in selection.evicted],
+        }
+        # El último intercambio es fijo (D1-61): siempre va, fuera del presupuesto.
+        turns = [item.source for item in selection.of_kind("turn")] + recent[-1:]
+        kept_retrieval = dataclasses.replace(
+            retrieval,
+            episodes=[item.source for item in selection.of_kind("memory")],
+            facts=[item.source for item in selection.of_kind("fact")],
+        ) if retrieval else None
+        messages = build_dialogue_messages(
+            self.entity.config, text, state.affect, state.drives, turns,
+            memories=build_memory_sections(kept_retrieval, self.now()), partner=partner,
+            expression=describe_expression(state.affect),
+        )
+        self._check_context(messages, "dialogue", workspace_event.id)
         result = LLMResult()
         refusals: list[dict] = []
         response = self._respond(
-            messages, "dialogue", GpuPriority.RESPONSE,
-            retrieval_event.id if retrieval_event else affect_event.id, result, refusals, temperature,
+            messages, "dialogue", GpuPriority.RESPONSE, workspace_event.id, result, refusals, temperature,
         )
         async with aclosing(response) as pieces:
             async for piece in pieces:
@@ -526,6 +562,67 @@ class Orchestrator:
             temperature=temperature, result=result, refusals=refusals,
             completed_cause_id=result.response_event_id,
         )
+
+    def _update_workspace(
+        self, recent: list[ConversationTurn], retrieval: RetrievalResult | None, cause_id: str
+    ) -> tuple[Selection, Event]:
+        """
+        Arma la pizarra del turno y elige qué entra (§5.6; CP9).
+
+        Compiten los intercambios del hilo salvo el último (relevancia según su
+        antigüedad), los recuerdos (su puntaje de §7.3 y su valencia) y los
+        hechos (su parecido); cada uno se mide con el texto que iría al prompt.
+        El presupuesto depende de la alerta (D1-62). Emite `wm.updated` y, si
+        algo no cupo, `wm.evicted`; devuelve la selección y el primer evento.
+        """
+        now = self.now()
+        items: list[WorkspaceItem] = []
+        older = recent[:-1]
+        for index, turn in enumerate(older):
+            items.append(WorkspaceItem(
+                kind="turn", key=f"turn-{index}", text=f"{turn.user}\n{turn.entity}",
+                relevance=turn_relevance(len(older) - index), order=index, source=turn,
+            ))
+        if retrieval is not None:
+            for index, episode in enumerate(retrieval.episodes):
+                items.append(WorkspaceItem(
+                    kind="memory", key=episode.candidate.id, text=memory_line(episode, now),
+                    relevance=episode.total, valence=episode.candidate.valence, order=index, source=episode,
+                ))
+            for index, fact in enumerate(retrieval.facts):
+                items.append(WorkspaceItem(
+                    kind="fact", key=fact.id, text=fact_line(fact), relevance=fact.similarity,
+                    order=index, source=fact,
+                ))
+        selection = select(items, workspace_budget(self.state.affect.arousal))
+        event = self.bus.emit(
+            self.entity_id, "wm.updated", selection.as_dict() | {"arousal": self.state.affect.arousal},
+            cause_id=cause_id,
+        )
+        if selection.evicted:
+            self.bus.emit(
+                self.entity_id, "wm.evicted",
+                {"items": [item.as_dict() for item in selection.evicted], "budget": selection.budget},
+                cause_id=event.id,
+            )
+        return selection, event
+
+    def _check_context(self, messages: list[dict[str, str]], preset: str, cause_id: str) -> None:
+        """
+        Avisa con `wm.overflow` si el prompt estimado no cabe en el contexto del modelo.
+
+        No recorta: con el presupuesto de la pizarra solo pasa ante un mensaje
+        enorme del usuario, y qué hacer entonces es una política pendiente
+        («textos largos», `pendientes_y_limitaciones.md`). El aviso hace visible
+        lo que Ollama truncaría en silencio.
+        """
+        estimated = sum(estimate_tokens(message["content"]) for message in messages)
+        limit = CONTEXT_TOKENS - PRESETS[preset].max_tokens
+        if estimated > limit:
+            self.bus.emit(
+                self.entity_id, "wm.overflow", {"estimated_tokens": estimated, "limit": limit},
+                cause_id=cause_id,
+            )
 
     async def _embed_query(self, text: str) -> tuple[list[float], float]:
         """Embedding del mensaje para buscar recuerdos; devuelve el vector y los ms que tardó."""

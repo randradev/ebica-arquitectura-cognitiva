@@ -36,6 +36,9 @@ interface TurnPayload {
   // Recuperación (CP7): lo recordado, el error, o null (sin memoria o turno impulsivo).
   // Ausente en los turnos anteriores a CP7.
   retrieval?: Retrieval | { error: string } | null
+  // Pizarra (CP9): presupuesto, lo usado y lo desalojado; null en un turno
+  // impulsivo (no usa la pizarra). Ausente en los turnos anteriores a CP9.
+  workspace?: Workspace | null
   // Memoria (CP6): lo escrito, el error, o null si el servidor corre sin memoria.
   // Ausente en los turnos anteriores a CP6.
   memory?: WrittenMemory | { error: string } | null
@@ -108,6 +111,42 @@ function RecallBlock({ retrieval, impulsive }: { retrieval: TurnPayload['retriev
         </>
       )}
     </div>
+  )
+}
+
+interface WorkspaceItem {
+  kind: 'turn' | 'memory' | 'fact'
+  key: string
+  tokens: number
+  salience: number
+}
+
+interface Workspace {
+  budget: number
+  used: number
+  kept: number
+  evicted: WorkspaceItem[]
+}
+
+// Nombres de los tipos de ítem de la pizarra, para la consola.
+const ITEM_KIND: Record<WorkspaceItem['kind'], string> = { turn: 'intercambio', memory: 'recuerdo', fact: 'hecho' }
+
+/**
+ * Línea «Pizarra» (CP9, §5.6): cuánto del presupuesto de tokens se usó y qué
+ * quedó fuera por falta de espacio. El detalle de lo desalojado (tipo,
+ * saliencia y tokens) aparece al pasar el mouse.
+ */
+function WorkspaceLine({ workspace }: { workspace: TurnPayload['workspace'] }) {
+  if (!workspace) return null
+  const evicted = workspace.evicted
+  const detail = evicted
+    .map((item) => `${ITEM_KIND[item.kind]} ${item.key} · saliencia ${item.salience.toFixed(2)} · ${item.tokens} tokens`)
+    .join('\n')
+  return (
+    <p className={evicted.length ? 'warning' : 'muted'} title={detail || undefined}>
+      pizarra: {workspace.used} de {workspace.budget} tokens · {workspace.kept} ítems
+      {evicted.length > 0 && ` · ${evicted.length} desalojados`}
+    </p>
   )
 }
 
@@ -213,6 +252,10 @@ export function TurnPanel({ events, activeId }: { events: EngineEvent[]; activeI
           </p>
         </div>
         <RecallBlock retrieval={turn.retrieval} impulsive={turn.impulsive} />
+        <div>
+          <h3>Pizarra</h3>
+          {turn.workspace ? <WorkspaceLine workspace={turn.workspace} /> : <p className="muted">sin pizarra (turno impulsivo)</p>}
+        </div>
         <div>
           <h3>Respuesta</h3>
           <p>{turn.temperature === null ? 'preset impulsive (0.50)' : `temperatura ${turn.temperature.toFixed(2)}`}</p>

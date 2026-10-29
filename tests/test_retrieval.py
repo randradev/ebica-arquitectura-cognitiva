@@ -264,12 +264,10 @@ from ebica.llm.prompt_assembler import (  # noqa: E402
     FEELINGS_HEADER,
     MEMORIES_HEADER,
     MEMORIES_NOTE,
-    MEMORY_SECTIONS_MAX_TOKENS,
     build_dialogue_messages,
     build_memory_sections,
     describe_tone,
     describe_when,
-    estimate_tokens,
 )
 from ebica.core.state import EntityConfig  # noqa: E402
 from ebica.memory.retrieval import RetrievalResult, RetrievedFact  # noqa: E402
@@ -328,8 +326,8 @@ def test_memory_sections_text():
     assert text.endswith(f"{FACTS_HEADER}\n- Soy Piscis.")
 
 
-def test_memory_sections_respect_the_budget():
-    """D1-50: con muchos recuerdos largos, se descartan los últimos hasta caber en el tope."""
+def test_memory_sections_say_everything_they_receive():
+    """CP9: el tope de D1-50 ya no existe; qué entra lo decide la WorkingMemory, aquí no se descarta nada."""
     episodes = [
         EpisodeCandidate(id=f"ep-{i}", kind="seed", ts=NOW, text=f"recuerdo{i} " + "palabra " * 150,
                          valence=0.0, arousal=0.5, importance=0.5, embedding=vec(a0=1))
@@ -337,8 +335,7 @@ def test_memory_sections_respect_the_budget():
     ]
     text = build_memory_sections(retrieval_with(episodes), NOW)
 
-    assert estimate_tokens(text) <= MEMORY_SECTIONS_MAX_TOKENS + estimate_tokens(f"{MEMORIES_HEADER} {MEMORIES_NOTE}")
-    assert "recuerdo0 " in text and "recuerdo9 " not in text
+    assert all(f"recuerdo{i} " in text for i in range(10))
 
 
 def test_nothing_retrieved_adds_nothing():

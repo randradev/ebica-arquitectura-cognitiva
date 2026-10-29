@@ -190,7 +190,7 @@ async def run_turn(
 
 
 async def test_turn_event_chain(tmp_path):
-    """perception → appraisal → afecto → diálogo → turn.completed, encadenados por cause_id."""
+    """perception → appraisal → afecto → pizarra → diálogo → turn.completed, encadenados por cause_id."""
     _, _, events, _, pieces = await run_turn(tmp_path)
     by_type = {}
     for event in events:
@@ -202,13 +202,16 @@ async def test_turn_event_chain(tmp_path):
     completed = by_type["appraisal.completed"][0]
     affect = next(e for e in by_type["affect.updated"] if e.payload["source"] == "appraisal")
     turn = by_type["turn.completed"][0]
+    workspace = by_type["wm.updated"][0]
 
     assert pieces == ["Ho", "la"]
     assert appraisal_request.cause_id == perception.id
     assert appraisal_response.cause_id == appraisal_request.id
     assert completed.cause_id == appraisal_response.id
     assert affect.cause_id == completed.id
-    assert dialogue_request.cause_id == affect.id
+    # Sin memoria no hay recuperación: la pizarra sigue al afecto (CP9).
+    assert workspace.cause_id == affect.id
+    assert dialogue_request.cause_id == workspace.id
     assert dialogue_response.cause_id == dialogue_request.id
     assert turn.cause_id == dialogue_response.id
     assert set(turn.payload["latency"]) == {
@@ -525,7 +528,10 @@ async def test_normal_turn_retrieves_before_answering(tmp_path):
     assert call["topics"] == ["perro"] and call["since"] is None
     assert call["k"] == orchestrator.parameters.k_retrieval
     assert call["affect"] == orchestrator.state.affect  # el ánimo ya actualizado por el appraisal
-    assert retrieved.cause_id == affect.id and dialogue_request.cause_id == retrieved.id
+    workspace = by_type["wm.updated"][0]
+    assert retrieved.cause_id == affect.id and workspace.cause_id == retrieved.id
+    assert dialogue_request.cause_id == workspace.id
+    assert {item["key"] for item in workspace.payload["kept"]} == {"ep-toby", "f-004"}
     system = bodies[-1]["messages"][0]["content"]
     assert "Adopté un perro, Toby." in system and "- Soy Piscis." in system
     assert turn.payload["retrieval"]["episodes"][0]["id"] == "ep-toby"
@@ -552,7 +558,8 @@ async def test_retrieval_failure_does_not_break_the_turn(tmp_path):
     failed = by_type["memory.retrieve_failed"][0]
 
     assert pieces == ["Ho", "la"]
-    assert by_type["llm.request"][-1].cause_id == failed.id
+    workspace = by_type["wm.updated"][0]
+    assert workspace.cause_id == failed.id and by_type["llm.request"][-1].cause_id == workspace.id
     assert "Lo que me viene a la mente" not in bodies[-1]["messages"][0]["content"]
     assert by_type["turn.completed"][0].payload["retrieval"] == failed.payload
 
